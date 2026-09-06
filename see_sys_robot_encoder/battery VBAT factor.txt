@@ -1,0 +1,4 @@
+VBAT pin measured is 0.356 * VBAT_actual
+
+battery full should be 3V
+stop usage at 1.18V
