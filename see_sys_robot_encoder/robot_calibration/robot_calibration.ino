@@ -28,8 +28,8 @@
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 
-const char *ssid = "Apt1920";
-const char *password = "DiraSisma1920";
+const char *ssid = "...";
+const char *password = "...";
 
 AsyncWebServer server(80);
 
