@@ -13,11 +13,11 @@ services:
 
   agent-udp:
     image: microros/micro-ros-agent:humble
-    network_mode: host
+    ports:
+      - "8888:8888/udp"
     command: ["udp4", "--port", "8888"]
 
   ros_tools:
     build: .
-    network_mode: host
     stdin_open: true
     tty: true
