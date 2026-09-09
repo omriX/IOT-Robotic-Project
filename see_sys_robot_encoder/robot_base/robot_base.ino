@@ -1,20 +1,11 @@
 // robot_base.ino
 //
-// Proves the toolchain end-to-end before any real topics exist -- WebSerial
-// debug channel + the standard micro-ROS agent connect/disconnect lifecycle
-// over Wi-Fi/UDP, publishing a plain std_msgs/Int32 counter. Motor control,
-// odometry, etc. are not here yet -- they land in later stages, on top of
-// this same lifecycle skeleton.
-//
-// Wi-Fi transport was brought forward from Stage B step 4: serial transport
-// (set_microros_transports()) hit an unresolved Windows/WSL2 USB-passthrough
-// issue (usbipd attach tears down ~45ms after connecting), so Wi-Fi is what's
-// actually verified first here. It also means Serial/USB stays free for
-// normal Serial.print -- only the serial-transport branch needs that off-limits.
+// subscribes to /cmd_vel and logs linear.x/angular.z over WebSerial.
 //
 // Verify with the agent reachable on the same LAN as the ESP32:
 //   docker compose -f docker/docker-compose.yml up agent-udp
-//   ros2 topic echo /robot_base/counter
+//   ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.5}}"
+// and watch WebSerial for the logged v/w.
 
 #include <micro_ros_arduino.h>
 #include <rcl/rcl.h>
@@ -22,7 +13,7 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <rmw_microros/rmw_microros.h>
-#include <std_msgs/msg/int32.h>
+#include <geometry_msgs/msg/twist.h>
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -58,11 +49,10 @@ AsyncWebServer server(80);
 
 rclc_support_t support;
 rcl_node_t node;
-rcl_timer_t timer;
 rclc_executor_t executor;
 rcl_allocator_t allocator;
-rcl_publisher_t counter_publisher;
-std_msgs__msg__Int32 counter_msg;
+rcl_subscription_t cmd_vel_subscriber;
+geometry_msgs__msg__Twist cmd_vel_msg;
 
 enum AgentState
 {
@@ -73,15 +63,14 @@ enum AgentState
 };
 AgentState state = WAITING_AGENT;
 
-void timer_callback(rcl_timer_t *timer, int64_t last_call_time)
+// No actuation yet (plan Stage C step 5) -- just log what arrived.
+void cmd_vel_callback(const void *msgin)
 {
-  (void)last_call_time;
-  if (timer != NULL)
-  {
-    rcl_ret_t rc = rcl_publish(&counter_publisher, &counter_msg, NULL);
-    (void)rc;
-    counter_msg.data++;
-  }
+  const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
+  WebSerial.print("cmd_vel v:");
+  WebSerial.print(msg->linear.x);
+  WebSerial.print(" w:");
+  WebSerial.println(msg->angular.z);
 }
 
 bool create_entities()
@@ -91,17 +80,14 @@ bool create_entities()
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
   RCCHECK(rclc_node_init_default(&node, "robot_base", "", &support));
 
-  RCCHECK(rclc_publisher_init_best_effort(
-      &counter_publisher, &node,
-      ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
-      "robot_base/counter"));
-
-  const unsigned int timer_timeout_ms = 1000;
-  RCCHECK(rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(timer_timeout_ms), timer_callback));
+  RCCHECK(rclc_subscription_init_best_effort(
+      &cmd_vel_subscriber, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+      "cmd_vel"));
 
   executor = rclc_executor_get_zero_initialized_executor();
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
-  RCCHECK(rclc_executor_add_timer(&executor, &timer));
+  RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_subscriber, &cmd_vel_msg, &cmd_vel_callback, ON_NEW_DATA));
 
   return true;
 }
@@ -112,9 +98,7 @@ void destroy_entities()
   (void)rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
   rcl_ret_t rc;
-  rc = rcl_publisher_fini(&counter_publisher, &node);
-  (void)rc;
-  rc = rcl_timer_fini(&timer);
+  rc = rcl_subscription_fini(&cmd_vel_subscriber, &node);
   (void)rc;
   rclc_executor_fini(&executor);
   rc = rcl_node_fini(&node);
@@ -127,9 +111,7 @@ void log_state()
 {
   const char *names[] = {"WAITING_AGENT", "AGENT_AVAILABLE", "AGENT_CONNECTED", "AGENT_DISCONNECTED"};
   WebSerial.print("state:");
-  WebSerial.print(names[state]);
-  WebSerial.print(" counter:");
-  WebSerial.println(counter_msg.data);
+  WebSerial.println(names[state]);
 }
 
 void setup()
@@ -161,7 +143,6 @@ void setup()
       MICROROS_AGENT_PORT);
 
   state = WAITING_AGENT;
-  counter_msg.data = 0;
 }
 
 void loop()
