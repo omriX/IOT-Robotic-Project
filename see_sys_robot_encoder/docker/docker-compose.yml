@@ -1,0 +1,23 @@
+# micro-ROS agent (bridges the ESP32 <-> the ROS 2 graph).
+# Usage:
+#   docker compose up agent-serial   # Serial
+#   docker compose up agent-udp      # Wi-Fi
+
+services:
+  agent-serial:
+    image: microros/micro-ros-agent:humble
+    network_mode: host
+    devices:
+      - "${MICROROS_SERIAL_DEV:-/dev/ttyUSB0}:${MICROROS_SERIAL_DEV:-/dev/ttyUSB0}"
+    command: ["serial", "--dev", "${MICROROS_SERIAL_DEV:-/dev/ttyUSB0}", "-b", "115200"]
+
+  agent-udp:
+    image: microros/micro-ros-agent:humble
+    network_mode: host
+    command: ["udp4", "--port", "8888"]
+
+  ros_tools:
+    build: .
+    network_mode: host
+    stdin_open: true
+    tty: true
