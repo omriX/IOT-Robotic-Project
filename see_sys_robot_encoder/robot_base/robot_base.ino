@@ -71,6 +71,7 @@ struct SharedState
 {
   double target_left_ticks = 0;
   double target_right_ticks = 0;
+  unsigned long last_cmd_ms = 0;
 };
 SharedState shared;
 
@@ -118,7 +119,14 @@ void controlTask(void *pvParameters)
     portENTER_CRITICAL(&sharedStateMux);
     double targetLeft = shared.target_left_ticks;
     double targetRight = shared.target_right_ticks;
+    unsigned long lastCmdMs = shared.last_cmd_ms;
     portEXIT_CRITICAL(&sharedStateMux);
+
+    if (millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS)
+    {
+      targetLeft = 0;
+      targetRight = 0;
+    }
 
     if (MOTOR_A_IS_LEFT)
     {
@@ -223,6 +231,11 @@ void destroy_entities()
   rc = rcl_node_fini(&node);
   (void)rc;
   rclc_support_fini(&support);
+
+  portENTER_CRITICAL(&sharedStateMux);
+  shared.target_left_ticks = 0;
+  shared.target_right_ticks = 0;
+  portEXIT_CRITICAL(&sharedStateMux);
 }
 
 // Debug telemetry -- WebSerial only, never Serial, once micro-ROS owns the UART.
@@ -299,10 +312,20 @@ void loop()
     }
     break;
   case AGENT_DISCONNECTED:
+    WebSerial.println("agent lost, stopping");
     destroy_entities();
     state = WAITING_AGENT;
     break;
   }
+
+  static bool watchdogTripped = false;
+  portENTER_CRITICAL(&sharedStateMux);
+  unsigned long lastCmdMs = shared.last_cmd_ms;
+  portEXIT_CRITICAL(&sharedStateMux);
+  bool tripped = millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS;
+  if (tripped && !watchdogTripped)
+    WebSerial.println("cmd_vel watchdog: no command, stopping");
+  watchdogTripped = tripped;
 
   static unsigned long last_log_ms = 0;
   if (millis() - last_log_ms >= 1000)

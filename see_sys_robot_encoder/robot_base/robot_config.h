@@ -53,3 +53,4 @@ constexpr int SPEED_DEADBAND = 40;
 
 // ==== Control loop timing ====
 constexpr unsigned long CONTROL_PERIOD_MS = 50;
+constexpr unsigned long CMD_VEL_TIMEOUT_MS = 500;
