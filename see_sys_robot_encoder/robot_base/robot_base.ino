@@ -184,6 +184,7 @@ void cmd_vel_callback(const void *msgin)
   portENTER_CRITICAL(&sharedStateMux);
   shared.target_left_ticks = sp.left_ticks_per_interval;
   shared.target_right_ticks = sp.right_ticks_per_interval;
+  shared.last_cmd_ms = millis();
   portEXIT_CRITICAL(&sharedStateMux);
 
   WebSerial.print("cmd_vel v:");
