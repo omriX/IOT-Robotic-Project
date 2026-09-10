@@ -21,6 +21,10 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
+#include <ESP32Encoder.h>
+#include <ArduPID.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "robot_config.h"
 #include "diff_drive.h"
@@ -53,6 +57,96 @@ constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
 
 AsyncWebServer server(80);
 
+ESP32Encoder encoderA;
+ESP32Encoder encoderB;
+
+double setpointA = 0, inputA = 0, outputA = 0;
+double setpointB = 0, inputB = 0, outputB = 0;
+ArduPID controllerA;
+ArduPID controllerB;
+
+// cmd_vel writes here (critical section); controlTask reads it each cycle.
+portMUX_TYPE sharedStateMux = portMUX_INITIALIZER_UNLOCKED;
+struct SharedState
+{
+  double target_left_ticks = 0;
+  double target_right_ticks = 0;
+};
+SharedState shared;
+
+void motors(int speedA, int speedB)
+{
+  if (abs(speedA) < SPEED_DEADBAND)
+    speedA = 0;
+  if (abs(speedB) < SPEED_DEADBAND)
+    speedB = 0;
+
+  if (speedA >= 0)
+  {
+    analogWrite(MOTOR_A_PWM_PIN, speedA);
+    digitalWrite(MOTOR_A_DIRECTION_PIN, LOW);
+  }
+  else
+  {
+    analogWrite(MOTOR_A_PWM_PIN, 256 + speedA);
+    digitalWrite(MOTOR_A_DIRECTION_PIN, HIGH);
+  }
+
+  if (speedB >= 0)
+  {
+    analogWrite(MOTOR_B_PWM_PIN, speedB);
+    digitalWrite(MOTOR_B_DIRECTION_PIN, LOW);
+  }
+  else
+  {
+    analogWrite(MOTOR_B_PWM_PIN, 256 + speedB);
+    digitalWrite(MOTOR_B_DIRECTION_PIN, HIGH);
+  }
+}
+
+void controlTask(void *pvParameters)
+{
+  (void)pvParameters;
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(CONTROL_PERIOD_MS);
+
+  long prevCountA = 0;
+  long prevCountB = 0;
+
+  for (;;)
+  {
+    portENTER_CRITICAL(&sharedStateMux);
+    double targetLeft = shared.target_left_ticks;
+    double targetRight = shared.target_right_ticks;
+    portEXIT_CRITICAL(&sharedStateMux);
+
+    if (MOTOR_A_IS_LEFT)
+    {
+      setpointA = targetLeft;
+      setpointB = targetRight;
+    }
+    else
+    {
+      setpointA = targetRight;
+      setpointB = targetLeft;
+    }
+
+    long currCountA = (long)encoderA.getCount();
+    inputA = (double)(currCountA - prevCountA);
+    prevCountA = currCountA;
+    controllerA.compute();
+
+    long currCountB = (long)encoderB.getCount();
+    inputB = (double)(currCountB - prevCountB);
+    prevCountB = currCountB;
+    controllerB.compute();
+
+    motors((int)outputA, (int)outputB);
+
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+  }
+}
+
 rclc_support_t support;
 rcl_node_t node;
 rclc_executor_t executor;
@@ -69,7 +163,6 @@ enum AgentState
 };
 AgentState state = WAITING_AGENT;
 
-// Run the verified kinematics and log the result.
 void cmd_vel_callback(const void *msgin)
 {
   const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
@@ -79,6 +172,11 @@ void cmd_vel_callback(const void *msgin)
       msg->linear.x, msg->angular.z,
       WHEEL_BASE_M, TICKS_PER_METER, CONTROL_PERIOD_S,
       LEFT_DIR_SIGN, RIGHT_DIR_SIGN, MAX_TICKS_PER_INTERVAL);
+
+  portENTER_CRITICAL(&sharedStateMux);
+  shared.target_left_ticks = sp.left_ticks_per_interval;
+  shared.target_right_ticks = sp.right_ticks_per_interval;
+  portEXIT_CRITICAL(&sharedStateMux);
 
   WebSerial.print("cmd_vel v:");
   WebSerial.print(msg->linear.x);
@@ -146,6 +244,21 @@ void setup()
   digitalWrite(MOTOR_A_DIRECTION_PIN, LOW);
   analogWrite(MOTOR_B_PWM_PIN, 0);
   digitalWrite(MOTOR_B_DIRECTION_PIN, LOW);
+
+  ESP32Encoder::useInternalWeakPullResistors = puType::up;
+  encoderA.attachFullQuad(MOT_A_ENCODER_A, MOT_A_ENCODER_B);
+  encoderA.clearCount();
+  encoderB.attachFullQuad(MOT_B_ENCODER_A, MOT_B_ENCODER_B);
+  encoderB.clearCount();
+
+  controllerA.begin(&inputA, &outputA, &setpointA, PID_P, PID_I, PID_D);
+  controllerB.begin(&inputB, &outputB, &setpointB, PID_P, PID_I, PID_D);
+  controllerA.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
+  controllerB.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
+  controllerA.start();
+  controllerB.start();
+
+  xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
 
   // WiFi + WebSerial first: this is the debug channel that stays alive once Serial itself is handed to micro-ROS below.
   WiFi.mode(WIFI_STA);
