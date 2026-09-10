@@ -1,11 +1,13 @@
 // robot_base.ino
 //
-// subscribes to /cmd_vel and logs linear.x/angular.z over WebSerial.
+// subscribes to /cmd_vel, runs it through the same
+// diff_drive.h kinematics already verified on the PC (test/test_diff_drive.cpp),
+// and logs the resulting per-wheel m/s and ticks/interval over WebSerial.
 //
 // Verify with the agent reachable on the same LAN as the ESP32:
 //   docker compose -f docker/docker-compose.yml up agent-udp
-//   ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}, angular: {z: 0.5}}"
-// and watch WebSerial for the logged v/w.
+//   ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.1}, angular: {z: 0.0}}'
+// and watch WebSerial for equal left/right values.
 
 #include <micro_ros_arduino.h>
 #include <rcl/rcl.h>
@@ -21,6 +23,10 @@
 #include <WebSerial.h>
 
 #include "robot_config.h"
+#include "diff_drive.h"
+
+constexpr double TICKS_PER_METER = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);
+constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
 
 #define RCCHECK(fn)            \
   {                            \
@@ -63,14 +69,29 @@ enum AgentState
 };
 AgentState state = WAITING_AGENT;
 
-// No actuation yet (plan Stage C step 5) -- just log what arrived.
+// Run the verified kinematics and log the result.
 void cmd_vel_callback(const void *msgin)
 {
   const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
+
+  WheelVelocities wv = wheelLinearVelocities(msg->linear.x, msg->angular.z, WHEEL_BASE_M);
+  WheelSetpoints sp = cmdVelToWheelSetpoints(
+      msg->linear.x, msg->angular.z,
+      WHEEL_BASE_M, TICKS_PER_METER, CONTROL_PERIOD_S,
+      LEFT_DIR_SIGN, RIGHT_DIR_SIGN, MAX_TICKS_PER_INTERVAL);
+
   WebSerial.print("cmd_vel v:");
   WebSerial.print(msg->linear.x);
   WebSerial.print(" w:");
-  WebSerial.println(msg->angular.z);
+  WebSerial.print(msg->angular.z);
+  WebSerial.print(" | wheel_mps L:");
+  WebSerial.print(wv.left_mps);
+  WebSerial.print(" R:");
+  WebSerial.print(wv.right_mps);
+  WebSerial.print(" | ticks_per_interval L:");
+  WebSerial.print(sp.left_ticks_per_interval);
+  WebSerial.print(" R:");
+  WebSerial.println(sp.right_ticks_per_interval);
 }
 
 bool create_entities()
