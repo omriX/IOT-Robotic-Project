@@ -29,6 +29,7 @@
 #include "robot_config.h"
 #include "diff_drive.h"
 #include "status_led.h"
+#include "selftest.h"
 
 constexpr double TICKS_PER_METER = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);
 constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
@@ -73,6 +74,7 @@ struct SharedState
   double target_left_ticks = 0;
   double target_right_ticks = 0;
   unsigned long last_cmd_ms = 0;
+  bool faulted = false;
 };
 SharedState shared;
 
@@ -121,9 +123,10 @@ void controlTask(void *pvParameters)
     double targetLeft = shared.target_left_ticks;
     double targetRight = shared.target_right_ticks;
     unsigned long lastCmdMs = shared.last_cmd_ms;
+    bool faulted = shared.faulted;
     portEXIT_CRITICAL(&sharedStateMux);
 
-    if (millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS)
+    if (faulted || millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS)
     {
       targetLeft = 0;
       targetRight = 0;
@@ -176,6 +179,12 @@ StatusLedState statusLed;
 
 void cmd_vel_callback(const void *msgin)
 {
+  portENTER_CRITICAL(&sharedStateMux);
+  bool faulted = shared.faulted;
+  portEXIT_CRITICAL(&sharedStateMux);
+  if (faulted)
+    return;
+
   const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
 
   WheelVelocities wv = wheelLinearVelocities(msg->linear.x, msg->angular.z, WHEEL_BASE_M);
@@ -275,11 +284,9 @@ void setup()
   controllerA.start();
   controllerB.start();
 
-  xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
-
   statusLedBegin(statusLed, LOW_BATTERY_LED_PIN);
 
-  // WiFi + WebSerial first: this is the debug channel that stays alive once Serial itself is handed to micro-ROS below.
+  // WiFi + WebSerial first, so the self-test below can report its result.
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.waitForConnectResult(); // best-effort; WebSerial just won't be reachable if this fails
@@ -288,6 +295,27 @@ void setup()
             { request->send(200, "text/plain", "robot_base. Open http://" + WiFi.localIP().toString() + "/webserial"); });
   WebSerial.begin(&server);
   server.begin();
+
+  // Runs before the PID task exists
+  SelftestResult testA = runMotorSelftest(MOTOR_A_DIRECTION_PIN, MOTOR_A_PWM_PIN, encoderA);
+  SelftestResult testB = runMotorSelftest(MOTOR_B_DIRECTION_PIN, MOTOR_B_PWM_PIN, encoderB);
+  bool selftestPassed = testA.passed && testB.passed;
+
+  WebSerial.print(selftestPassed ? "self-test passed" : "self-test FAILED");
+  WebSerial.print(" | A fwd:");
+  WebSerial.print(testA.forward_delta);
+  WebSerial.print(" bwd:");
+  WebSerial.print(testA.backward_delta);
+  WebSerial.print(" | B fwd:");
+  WebSerial.print(testB.forward_delta);
+  WebSerial.print(" bwd:");
+  WebSerial.println(testB.backward_delta);
+
+  encoderA.clearCount();
+  encoderB.clearCount();
+  shared.faulted = !selftestPassed;
+
+  xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
 
   set_microros_wifi_transports(
       const_cast<char *>(WIFI_SSID),
@@ -333,8 +361,10 @@ void loop()
     WebSerial.println("cmd_vel watchdog: no command, stopping");
   watchdogTripped = tripped;
 
-  // update the led to point that ROS agent is connected
-  statusLedUpdate(statusLed, false, false, false, state == AGENT_CONNECTED);
+  portENTER_CRITICAL(&sharedStateMux);
+  bool faulted = shared.faulted;
+  portEXIT_CRITICAL(&sharedStateMux);
+  statusLedUpdate(statusLed, faulted, false, false, state == AGENT_CONNECTED);
 
   static unsigned long last_log_ms = 0;
   if (millis() - last_log_ms >= 1000)
