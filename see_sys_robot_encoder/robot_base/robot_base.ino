@@ -28,6 +28,7 @@
 
 #include "robot_config.h"
 #include "diff_drive.h"
+#include "status_led.h"
 
 constexpr double TICKS_PER_METER = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);
 constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
@@ -171,6 +172,8 @@ enum AgentState
 };
 AgentState state = WAITING_AGENT;
 
+StatusLedState statusLed;
+
 void cmd_vel_callback(const void *msgin)
 {
   const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
@@ -274,6 +277,8 @@ void setup()
 
   xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
 
+  statusLedBegin(statusLed, LOW_BATTERY_LED_PIN);
+
   // WiFi + WebSerial first: this is the debug channel that stays alive once Serial itself is handed to micro-ROS below.
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -327,6 +332,9 @@ void loop()
   if (tripped && !watchdogTripped)
     WebSerial.println("cmd_vel watchdog: no command, stopping");
   watchdogTripped = tripped;
+
+  // update the led to point that ROS agent is connected
+  statusLedUpdate(statusLed, false, false, false, state == AGENT_CONNECTED);
 
   static unsigned long last_log_ms = 0;
   if (millis() - last_log_ms >= 1000)
