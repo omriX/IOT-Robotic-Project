@@ -16,6 +16,7 @@
 #include <rclc/executor.h>
 #include <rmw_microros/rmw_microros.h>
 #include <geometry_msgs/msg/twist.h>
+#include <std_msgs/msg/u_int8.h>
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -30,6 +31,7 @@
 #include "diff_drive.h"
 #include "status_led.h"
 #include "selftest.h"
+#include "ros_log.h"
 
 constexpr double TICKS_PER_METER = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);
 constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
@@ -165,6 +167,12 @@ rclc_executor_t executor;
 rcl_allocator_t allocator;
 rcl_subscription_t cmd_vel_subscriber;
 geometry_msgs__msg__Twist cmd_vel_msg;
+rcl_publisher_t status_publisher;
+std_msgs__msg__UInt8 status_msg;
+RosLogger logger;
+
+bool selftestPassed = false;
+bool selftestLogged = false;
 
 enum AgentState
 {
@@ -225,9 +233,25 @@ bool create_entities()
       ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
       "cmd_vel"));
 
+  RCCHECK(rclc_publisher_init_default(
+      &status_publisher, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8),
+      "robot_base/status"));
+
+  if (!rosLoggerInit(logger, &node))
+    return false;
+
   executor = rclc_executor_get_zero_initialized_executor();
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
   RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_subscriber, &cmd_vel_msg, &cmd_vel_callback, ON_NEW_DATA));
+
+  rosLog(logger, rcl_interfaces__msg__Log__INFO, "robot_base connected");
+  if (!selftestLogged)
+  {
+    rosLog(logger, selftestPassed ? rcl_interfaces__msg__Log__INFO : rcl_interfaces__msg__Log__FATAL,
+           selftestPassed ? "self-test passed" : "self-test FAILED");
+    selftestLogged = true;
+  }
 
   return true;
 }
@@ -240,6 +264,9 @@ void destroy_entities()
   rcl_ret_t rc;
   rc = rcl_subscription_fini(&cmd_vel_subscriber, &node);
   (void)rc;
+  rc = rcl_publisher_fini(&status_publisher, &node);
+  (void)rc;
+  rosLoggerFini(logger);
   rclc_executor_fini(&executor);
   rc = rcl_node_fini(&node);
   (void)rc;
@@ -299,7 +326,7 @@ void setup()
   // Runs before the PID task exists
   SelftestResult testA = runMotorSelftest(MOTOR_A_DIRECTION_PIN, MOTOR_A_PWM_PIN, encoderA);
   SelftestResult testB = runMotorSelftest(MOTOR_B_DIRECTION_PIN, MOTOR_B_PWM_PIN, encoderB);
-  bool selftestPassed = testA.passed && testB.passed;
+  selftestPassed = testA.passed && testB.passed;
 
   WebSerial.print(selftestPassed ? "self-test passed" : "self-test FAILED");
   WebSerial.print(" | A fwd:");
@@ -343,10 +370,17 @@ void loop()
     if (state == AGENT_CONNECTED)
     {
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+      EXECUTE_EVERY_N_MS(1000, {
+        portENTER_CRITICAL(&sharedStateMux);
+        status_msg.data = shared.faulted ? 1 : 0;
+        portEXIT_CRITICAL(&sharedStateMux);
+        rcl_publish(&status_publisher, &status_msg, NULL);
+      });
     }
     break;
   case AGENT_DISCONNECTED:
     WebSerial.println("agent lost, stopping");
+    rosLog(logger, rcl_interfaces__msg__Log__WARN, "agent disconnected");
     destroy_entities();
     state = WAITING_AGENT;
     break;
@@ -358,7 +392,11 @@ void loop()
   portEXIT_CRITICAL(&sharedStateMux);
   bool tripped = millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS;
   if (tripped && !watchdogTripped)
+  {
     WebSerial.println("cmd_vel watchdog: no command, stopping");
+    if (state == AGENT_CONNECTED)
+      rosLog(logger, rcl_interfaces__msg__Log__WARN, "cmd_vel watchdog: no command, stopping");
+  }
   watchdogTripped = tripped;
 
   portENTER_CRITICAL(&sharedStateMux);
