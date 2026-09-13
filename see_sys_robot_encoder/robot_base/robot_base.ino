@@ -77,6 +77,9 @@ struct SharedState
   double target_right_ticks = 0;
   unsigned long last_cmd_ms = 0;
   bool faulted = false;
+  // written by controlTask, read by loop() for logging (and later /odom)
+  double x = 0, y = 0, theta = 0;
+  double linear_v = 0, angular_w = 0;
 };
 SharedState shared;
 
@@ -118,6 +121,7 @@ void controlTask(void *pvParameters)
 
   long prevCountA = 0;
   long prevCountB = 0;
+  Pose2D pose;
 
   for (;;)
   {
@@ -156,6 +160,18 @@ void controlTask(void *pvParameters)
     controllerB.compute();
 
     motors((int)outputA, (int)outputB);
+
+    double deltaLeftTicks = MOTOR_A_IS_LEFT ? inputA : inputB;
+    double deltaRightTicks = MOTOR_A_IS_LEFT ? inputB : inputA;
+    OdometryDelta odom = integrateOdometry(pose, deltaLeftTicks, deltaRightTicks, TICKS_PER_METER, WHEEL_BASE_M, CONTROL_PERIOD_S);
+
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.x = pose.x;
+    shared.y = pose.y;
+    shared.theta = pose.theta;
+    shared.linear_v = odom.linear_v;
+    shared.angular_w = odom.angular_w;
+    portEXIT_CRITICAL(&sharedStateMux);
 
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
   }
@@ -409,6 +425,16 @@ void loop()
   {
     last_log_ms = millis();
     log_state();
+
+    portENTER_CRITICAL(&sharedStateMux);
+    double x = shared.x, y = shared.y, theta = shared.theta;
+    portEXIT_CRITICAL(&sharedStateMux);
+    WebSerial.print("odom x:");
+    WebSerial.print(x);
+    WebSerial.print(" y:");
+    WebSerial.print(y);
+    WebSerial.print(" theta:");
+    WebSerial.println(theta);
   }
 
   WebSerial.loop();
