@@ -101,8 +101,8 @@ struct SharedState
 };
 SharedState shared;
 
-// WebSerial "freewheel on"/"freewheel off" -- cuts motor output so the
-// wheels can be turned by hand to test odometry, without the PID fighting it.
+// WebSerial "freewheel on"/"freewheel off"
+// cuts motor output so the wheels can be turned by hand to test odometry.
 volatile bool freewheelMode = false;
 
 void motors(int speedA, int speedB)
@@ -218,17 +218,12 @@ nav_msgs__msg__Odometry odom_msg;
 bool timeSynced = false;
 RosLogger logger;
 
-// odom_msg's frame ids and covariance never change, so set them once here
-// rather than on every reconnect -- only the publisher handle itself is
-// torn down and recreated in create_entities()/destroy_entities().
 void initOdomMsg()
 {
   nav_msgs__msg__Odometry__init(&odom_msg);
   odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, "odom");
   odom_msg.child_frame_id = micro_ros_string_utilities_set(odom_msg.child_frame_id, "base_link");
 
-  // Conservative fixed diagonal: 1e6 on z/roll/pitch tells downstream fusion
-  // "a planar robot has no information here." Tune after the course test.
   for (int i = 0; i < 36; i++)
   {
     odom_msg.pose.covariance[i] = 0.0;
@@ -470,8 +465,6 @@ bool create_entities()
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8),
       "robot_base/status"));
 
-  // Odometry serializes to ~720 B, over the default 512 B MTU -- must be
-  // reliable so it fragments instead of getting silently dropped.
   RCCHECK(rclc_publisher_init_default(
       &odom_publisher, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
