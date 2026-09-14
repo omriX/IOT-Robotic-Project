@@ -17,6 +17,7 @@
 #include <rmw_microros/rmw_microros.h>
 #include <geometry_msgs/msg/twist.h>
 #include <std_msgs/msg/u_int8.h>
+#include <nav_msgs/msg/odometry.h>
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -192,7 +193,10 @@ rcl_subscription_t cmd_vel_subscriber;
 geometry_msgs__msg__Twist cmd_vel_msg;
 rcl_publisher_t status_publisher;
 std_msgs__msg__UInt8 status_msg;
+rcl_publisher_t odom_publisher;
+nav_msgs__msg__Odometry odom_msg;
 RosLogger logger;
+bool timeSynced = false;
 
 bool selftestPassed = false;
 bool selftestLogged = false;
@@ -251,6 +255,8 @@ bool create_entities()
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
   RCCHECK(rclc_node_init_default(&node, "robot_base", "", &support));
 
+  timeSynced = (RMW_RET_OK == rmw_uros_sync_session(1000)) && rmw_uros_epoch_synchronized();
+
   RCCHECK(rclc_subscription_init_best_effort(
       &cmd_vel_subscriber, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
@@ -261,6 +267,11 @@ bool create_entities()
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8),
       "robot_base/status"));
 
+  RCCHECK(rclc_publisher_init_default(
+      &odom_publisher, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
+      "odom"));
+
   if (!rosLoggerInit(logger, &node))
     return false;
 
@@ -269,6 +280,8 @@ bool create_entities()
   RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_subscriber, &cmd_vel_msg, &cmd_vel_callback, ON_NEW_DATA));
 
   rosLog(logger, rcl_interfaces__msg__Log__INFO, "robot_base connected");
+  if (!timeSynced)
+    rosLog(logger, rcl_interfaces__msg__Log__WARN, "time sync failed, timestamps fall back to millis()");
   if (!selftestLogged)
   {
     rosLog(logger, selftestPassed ? rcl_interfaces__msg__Log__INFO : rcl_interfaces__msg__Log__FATAL,
@@ -289,6 +302,8 @@ void destroy_entities()
   (void)rc;
   rc = rcl_publisher_fini(&status_publisher, &node);
   (void)rc;
+  rc = rcl_publisher_fini(&odom_publisher, &node);
+  (void)rc;
   rosLoggerFini(logger);
   rclc_executor_fini(&executor);
   rc = rcl_node_fini(&node);
@@ -299,6 +314,42 @@ void destroy_entities()
   shared.target_left_ticks = 0;
   shared.target_right_ticks = 0;
   portEXIT_CRITICAL(&sharedStateMux);
+}
+
+float measure_battery()
+{
+  float adc_voltage = (analogRead(BATTERY_PIN) / ADC_MAX_VALUE) * ADC_LOGIC_LEVEL_V;
+  return adc_voltage * BATTERY_VOLTAGE_DIVIDER_FACTOR;
+}
+
+void publish_odom()
+{
+  portENTER_CRITICAL(&sharedStateMux);
+  double x = shared.x, y = shared.y, theta = shared.theta;
+  double v = shared.linear_v, w = shared.angular_w;
+  portEXIT_CRITICAL(&sharedStateMux);
+
+  if (timeSynced)
+  {
+    int64_t nanos = rmw_uros_epoch_nanos();
+    odom_msg.header.stamp.sec = (int32_t)(nanos / 1000000000LL);
+    odom_msg.header.stamp.nanosec = (uint32_t)(nanos % 1000000000LL);
+  }
+  else
+  {
+    odom_msg.header.stamp.sec = millis() / 1000;
+    odom_msg.header.stamp.nanosec = (millis() % 1000) * 1000000UL;
+  }
+
+  odom_msg.pose.pose.position.x = x;
+  odom_msg.pose.pose.position.y = y;
+  odom_msg.pose.pose.orientation.z = sin(theta / 2.0);
+  odom_msg.pose.pose.orientation.w = cos(theta / 2.0);
+
+  odom_msg.twist.twist.linear.x = v;
+  odom_msg.twist.twist.angular.z = w;
+
+  rcl_publish(&odom_publisher, &odom_msg, NULL);
 }
 
 // Debug telemetry -- WebSerial only, never Serial, once micro-ROS owns the UART.
@@ -335,6 +386,23 @@ void setup()
   controllerB.start();
 
   statusLedBegin(statusLed, LOW_BATTERY_LED_PIN);
+
+  nav_msgs__msg__Odometry__init(&odom_msg);
+  odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, "odom");
+  odom_msg.child_frame_id = micro_ros_string_utilities_set(odom_msg.child_frame_id, "base_link");
+  // planar robot: no information on z/roll/pitch
+  odom_msg.pose.covariance[0] = 0.01;
+  odom_msg.pose.covariance[7] = 0.01;
+  odom_msg.pose.covariance[14] = 1e6;
+  odom_msg.pose.covariance[21] = 1e6;
+  odom_msg.pose.covariance[28] = 1e6;
+  odom_msg.pose.covariance[35] = 0.05;
+  odom_msg.twist.covariance[0] = 0.01;
+  odom_msg.twist.covariance[7] = 0.01;
+  odom_msg.twist.covariance[14] = 1e6;
+  odom_msg.twist.covariance[21] = 1e6;
+  odom_msg.twist.covariance[28] = 1e6;
+  odom_msg.twist.covariance[35] = 0.05;
 
   // WiFi + WebSerial first, so the self-test below can report its result.
   WiFi.mode(WIFI_STA);
@@ -405,6 +473,7 @@ void loop()
     if (state == AGENT_CONNECTED)
     {
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+      EXECUTE_EVERY_N_MS(CONTROL_PERIOD_MS, publish_odom());
       EXECUTE_EVERY_N_MS(1000, {
         portENTER_CRITICAL(&sharedStateMux);
         status_msg.data = shared.faulted ? 1 : 0;
@@ -454,6 +523,9 @@ void loop()
     WebSerial.print(y);
     WebSerial.print(" theta:");
     WebSerial.println(theta);
+
+    WebSerial.print("battery_V:");
+    WebSerial.println(measure_battery());
   }
 
   WebSerial.loop();

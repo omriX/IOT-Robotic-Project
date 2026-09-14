@@ -12,7 +12,7 @@ constexpr char WIFI_PASSWORD[] = "12345678";
 
 // micro-ROS agent (docker/docker-compose.yml, agent-udp) -- the PC's LAN IP.
 // TODO: re-check this IP if it changes (DHCP).
-constexpr char MICROROS_AGENT_IP[] = "192.168.1.221";
+constexpr char MICROROS_AGENT_IP[] = "172.20.10.3";
 constexpr uint32_t MICROROS_AGENT_PORT = 8888;
 
 // ==== Motor driver pins -- unchanged from POC code ====
