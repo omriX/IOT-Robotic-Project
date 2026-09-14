@@ -83,6 +83,10 @@ struct SharedState
 };
 SharedState shared;
 
+// WebSerial "freewheel on"/"freewheel off" -- cuts motor output so the
+// wheels can be turned by hand to test odometry, without the PID fighting it.
+volatile bool freewheelMode = false;
+
 void motors(int speedA, int speedB)
 {
   if (abs(speedA) < SPEED_DEADBAND)
@@ -159,10 +163,13 @@ void controlTask(void *pvParameters)
     prevCountB = currCountB;
     controllerB.compute();
 
-    motors((int)outputA, (int)outputB);
+    if (freewheelMode)
+      motors(0, 0);
+    else
+      motors((int)outputA, (int)outputB);
 
-    double deltaLeftTicks = MOTOR_A_IS_LEFT ? inputA : inputB;
-    double deltaRightTicks = MOTOR_A_IS_LEFT ? inputB : inputA;
+    double deltaLeftTicks = (MOTOR_A_IS_LEFT ? inputA : inputB) * LEFT_DIR_SIGN;
+    double deltaRightTicks = (MOTOR_A_IS_LEFT ? inputB : inputA) * RIGHT_DIR_SIGN;
     OdometryDelta odom = integrateOdometry(pose, deltaLeftTicks, deltaRightTicks, TICKS_PER_METER, WHEEL_BASE_M, CONTROL_PERIOD_S);
 
     portENTER_CRITICAL(&sharedStateMux);
@@ -337,6 +344,18 @@ void setup()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/plain", "robot_base. Open http://" + WiFi.localIP().toString() + "/webserial"); });
   WebSerial.begin(&server);
+  WebSerial.onMessage([](const String &msg)
+                      {
+    if (msg == "freewheel on")
+    {
+      freewheelMode = true;
+      WebSerial.println("freewheel on -- motors disabled, encoders still counting");
+    }
+    else if (msg == "freewheel off")
+    {
+      freewheelMode = false;
+      WebSerial.println("freewheel off");
+    } });
   server.begin();
 
   // Runs before the PID task exists

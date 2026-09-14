@@ -7,8 +7,8 @@
 // Used for WebSerial (the debug channel once micro-ROS owns the Serial/USB UART)
 // and the micro-ROS transport itself.
 // TODO: move to NVS + serial config console instead of hardcoding credentials here.
-constexpr char WIFI_SSID[] = "Apt1920";
-constexpr char WIFI_PASSWORD[] = "DiraSisma1920";
+constexpr char WIFI_SSID[] = "Omri";
+constexpr char WIFI_PASSWORD[] = "12345678";
 
 // micro-ROS agent (docker/docker-compose.yml, agent-udp) -- the PC's LAN IP.
 // TODO: re-check this IP if it changes (DHCP).
