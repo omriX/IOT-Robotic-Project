@@ -24,7 +24,6 @@
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 #include <ESP32Encoder.h>
-#include <ArduPID.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -67,8 +66,8 @@ ESP32Encoder encoderB;
 
 double setpointA = 0, inputA = 0, outputA = 0;
 double setpointB = 0, inputB = 0, outputB = 0;
-ArduPID controllerA;
-ArduPID controllerB;
+WheelController controllerA;
+WheelController controllerB;
 
 // cmd_vel writes here (critical section); controlTask reads it each cycle.
 portMUX_TYPE sharedStateMux = portMUX_INITIALIZER_UNLOCKED;
@@ -88,13 +87,46 @@ SharedState shared;
 // wheels can be turned by hand to test odometry, without the PID fighting it.
 volatile bool freewheelMode = false;
 
+// WebSerial "wheeldebug on"/"wheeldebug off". controlTask fills this every
+// control interval and loop() drains it, so the trace keeps full 20 Hz
+// resolution even when loop() is slow -- /odom at 1 Hz cannot show the loop.
+struct WheelSample
+{
+  int16_t setpoint_left, setpoint_right;
+  int16_t measured_left, measured_right;
+  int16_t pwm_left, pwm_right;
+};
+constexpr int WHEEL_TRACE_LEN = 64;
+WheelSample wheelTrace[WHEEL_TRACE_LEN];
+int wheelTraceHead = 0;
+int wheelTraceTail = 0;
+volatile bool wheelTraceEnabled = false;
+
+void wheelTracePush(const WheelSample &sample)
+{
+  int next = (wheelTraceHead + 1) % WHEEL_TRACE_LEN;
+  if (next == wheelTraceTail)
+    return;
+  wheelTrace[wheelTraceHead] = sample;
+  wheelTraceHead = next;
+}
+
+bool wheelTracePop(WheelSample &out)
+{
+  bool has_sample = false;
+  portENTER_CRITICAL(&sharedStateMux);
+  if (wheelTraceTail != wheelTraceHead)
+  {
+    out = wheelTrace[wheelTraceTail];
+    wheelTraceTail = (wheelTraceTail + 1) % WHEEL_TRACE_LEN;
+    has_sample = true;
+  }
+  portEXIT_CRITICAL(&sharedStateMux);
+  return has_sample;
+}
+
 void motors(int speedA, int speedB)
 {
-  if (abs(speedA) < SPEED_DEADBAND)
-    speedA = 0;
-  if (abs(speedB) < SPEED_DEADBAND)
-    speedB = 0;
-
   if (speedA >= 0)
   {
     analogWrite(MOTOR_A_PWM_PIN, speedA);
@@ -157,17 +189,26 @@ void controlTask(void *pvParameters)
     long currCountA = (long)encoderA.getCount();
     inputA = (double)(currCountA - prevCountA);
     prevCountA = currCountA;
-    controllerA.compute();
+    outputA = wheelControl(controllerA, setpointA, inputA,
+                           PID_P, PID_I, CONTROL_PERIOD_S,
+                           PWM_DEADBAND_FLOOR, TICKS_AT_PWM_FLOOR, TICKS_PER_PWM,
+                           PID_INTEGRAL_LIMIT, PWM_MAX);
 
     long currCountB = (long)encoderB.getCount();
     inputB = (double)(currCountB - prevCountB);
     prevCountB = currCountB;
-    controllerB.compute();
+    outputB = wheelControl(controllerB, setpointB, inputB,
+                           PID_P, PID_I, CONTROL_PERIOD_S,
+                           PWM_DEADBAND_FLOOR, TICKS_AT_PWM_FLOOR, TICKS_PER_PWM,
+                           PID_INTEGRAL_LIMIT, PWM_MAX);
+
+    int commandA = motorCommand(setpointA, outputA, PWM_DEADBAND_FLOOR, PWM_MAX);
+    int commandB = motorCommand(setpointB, outputB, PWM_DEADBAND_FLOOR, PWM_MAX);
 
     if (freewheelMode)
       motors(0, 0);
     else
-      motors((int)outputA, (int)outputB);
+      motors(commandA, commandB);
 
     double deltaLeftTicks = (MOTOR_A_IS_LEFT ? inputA : inputB) * LEFT_DIR_SIGN;
     double deltaRightTicks = (MOTOR_A_IS_LEFT ? inputB : inputA) * RIGHT_DIR_SIGN;
@@ -179,6 +220,17 @@ void controlTask(void *pvParameters)
     shared.theta = pose.theta;
     shared.linear_v = odom.linear_v;
     shared.angular_w = odom.angular_w;
+    if (wheelTraceEnabled)
+    {
+      WheelSample sample;
+      sample.setpoint_left = (int16_t)(MOTOR_A_IS_LEFT ? setpointA : setpointB);
+      sample.setpoint_right = (int16_t)(MOTOR_A_IS_LEFT ? setpointB : setpointA);
+      sample.measured_left = (int16_t)(MOTOR_A_IS_LEFT ? inputA : inputB);
+      sample.measured_right = (int16_t)(MOTOR_A_IS_LEFT ? inputB : inputA);
+      sample.pwm_left = (int16_t)(MOTOR_A_IS_LEFT ? commandA : commandB);
+      sample.pwm_right = (int16_t)(MOTOR_A_IS_LEFT ? commandB : commandA);
+      wheelTracePush(sample);
+    }
     portEXIT_CRITICAL(&sharedStateMux);
 
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -197,6 +249,7 @@ rcl_publisher_t odom_publisher;
 nav_msgs__msg__Odometry odom_msg;
 RosLogger logger;
 bool timeSynced = false;
+uint32_t odomPublishFailures = 0;
 
 bool selftestPassed = false;
 bool selftestLogged = false;
@@ -349,7 +402,8 @@ void publish_odom()
   odom_msg.twist.twist.linear.x = v;
   odom_msg.twist.twist.angular.z = w;
 
-  rcl_publish(&odom_publisher, &odom_msg, NULL);
+  if (rcl_publish(&odom_publisher, &odom_msg, NULL) != RCL_RET_OK)
+    odomPublishFailures++;
 }
 
 // Debug telemetry -- WebSerial only, never Serial, once micro-ROS owns the UART.
@@ -377,13 +431,6 @@ void setup()
   encoderA.clearCount();
   encoderB.attachFullQuad(MOT_B_ENCODER_A, MOT_B_ENCODER_B);
   encoderB.clearCount();
-
-  controllerA.begin(&inputA, &outputA, &setpointA, PID_P, PID_I, PID_D);
-  controllerB.begin(&inputB, &outputB, &setpointB, PID_P, PID_I, PID_D);
-  controllerA.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
-  controllerB.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
-  controllerA.start();
-  controllerB.start();
 
   statusLedBegin(statusLed, LOW_BATTERY_LED_PIN);
 
@@ -423,6 +470,16 @@ void setup()
     {
       freewheelMode = false;
       WebSerial.println("freewheel off");
+    }
+    else if (msg == "wheeldebug on")
+    {
+      wheelTraceEnabled = true;
+      WebSerial.println("wheeldebug on -- per-wheel setpoint/measured/pwm, ticks per control interval");
+    }
+    else if (msg == "wheeldebug off")
+    {
+      wheelTraceEnabled = false;
+      WebSerial.println("wheeldebug off");
     } });
   server.begin();
 
@@ -445,7 +502,7 @@ void setup()
   encoderB.clearCount();
   shared.faulted = !selftestPassed;
 
-  xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 3, NULL, 1);
 
   set_microros_wifi_transports(
       const_cast<char *>(WIFI_SSID),
@@ -526,6 +583,30 @@ void loop()
 
     WebSerial.print("battery_V:");
     WebSerial.println(measure_battery());
+
+    if (odomPublishFailures > 0)
+    {
+      WebSerial.print("odom publish failures:");
+      WebSerial.println(odomPublishFailures);
+      odomPublishFailures = 0;
+    }
+  }
+
+  WheelSample sample;
+  while (wheelTracePop(sample))
+  {
+    WebSerial.print("wheel L sp:");
+    WebSerial.print(sample.setpoint_left);
+    WebSerial.print(" meas:");
+    WebSerial.print(sample.measured_left);
+    WebSerial.print(" pwm:");
+    WebSerial.print(sample.pwm_left);
+    WebSerial.print(" | R sp:");
+    WebSerial.print(sample.setpoint_right);
+    WebSerial.print(" meas:");
+    WebSerial.print(sample.measured_right);
+    WebSerial.print(" pwm:");
+    WebSerial.println(sample.pwm_right);
   }
 
   WebSerial.loop();

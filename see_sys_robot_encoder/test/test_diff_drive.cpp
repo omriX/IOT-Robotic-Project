@@ -41,6 +41,15 @@ constexpr double WHEEL_BASE_M = 0.116;
 constexpr double CONTROL_PERIOD_S = 0.050;
 constexpr double MAX_TICKS = 350.0;
 constexpr double TICKS_PER_M = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);
+constexpr double PWM_FLOOR = 40.0;
+constexpr double TICKS_AT_FLOOR = 61.0;
+constexpr double TICKS_PER_PWM = 1.419;
+constexpr double PWM_MAX = 255.0;
+
+static double pwmToTicks(double pwm)
+{
+  return TICKS_AT_FLOOR + (pwm - PWM_FLOOR) * TICKS_PER_PWM;
+}
 
 void test_straight()
 {
@@ -128,6 +137,100 @@ void test_odometry_square_loop()
   CHECK("square loop: returns to theta=0 (mod 2pi)", near(wrapToPi(pose.theta), 0.0, 1e-6));
 }
 
+void test_feedforward()
+{
+  CHECK("ff: zero setpoint -> zero pwm", near(ticksToPwm(0.0, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM), 0.0));
+  CHECK("ff: speed at the floor -> the floor pwm",
+        near(ticksToPwm(TICKS_AT_FLOOR, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM), PWM_FLOOR, 1e-9));
+  CHECK("ff: speed below the floor -> still the floor pwm (motor cannot go slower)",
+        near(ticksToPwm(10.0, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM), PWM_FLOOR, 1e-9));
+  CHECK("ff: negative setpoint -> negative pwm of equal magnitude",
+        near(ticksToPwm(-152.5, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM),
+             -ticksToPwm(152.5, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM), 1e-9));
+
+  // ticks -> pwm -> ticks, against the ramp the constants were fitted to.
+  double ticks = 152.5; // 0.1 m/s
+  double pwm = ticksToPwm(ticks, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM);
+  CHECK("ff: round-trips through the measured ramp", near(pwmToTicks(pwm), ticks, 1e-6));
+  CHECK("ff: 0.1 m/s needs well over half the floor pwm", pwm > 2.0 * PWM_FLOOR);
+}
+
+void test_motor_command()
+{
+  double ff = ticksToPwm(-152.5, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM);
+
+  CHECK("cmd: zero setpoint stops the wheel", motorCommand(0.0, 99.0, PWM_FLOOR, PWM_MAX) == 0);
+
+  // The old failure: a small controller output fell inside the dead zone and was
+  // chopped to a full stop, so the loop oscillated between stalled and kicking.
+  CHECK("cmd: small output is lifted to the floor, not chopped to zero",
+        motorCommand(-152.5, -5.0, PWM_FLOOR, PWM_MAX) == -(int)PWM_FLOOR);
+  CHECK("cmd: output opposing the setpoint is lifted to the floor too",
+        motorCommand(-152.5, 30.0, PWM_FLOOR, PWM_MAX) == -(int)PWM_FLOOR);
+
+  CHECK("cmd: normal output passes through", motorCommand(-152.5, ff, PWM_FLOOR, PWM_MAX) == (int)ff);
+  CHECK("cmd: clamped to +pwm_max", motorCommand(152.5, 900.0, PWM_FLOOR, PWM_MAX) == (int)PWM_MAX);
+  CHECK("cmd: clamped to -pwm_max", motorCommand(-152.5, -900.0, PWM_FLOOR, PWM_MAX) == -(int)PWM_MAX);
+}
+
+void test_setpoint_ceiling_is_reachable()
+{
+  // MAX_TICKS_PER_INTERVAL used to allow ~0.23 m/s while the output limit
+  // capped the motors near 0.11 m/s, so fast commands saturated forever.
+  CHECK("ceiling: the fastest allowed setpoint is within the pwm range",
+        ticksToPwm(MAX_TICKS, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM) <= PWM_MAX);
+}
+
+void test_wheel_control()
+{
+  constexpr double KP = 0.4, KI = 2.5, DT = 0.05, I_LIMIT = 60.0;
+  double ff = ticksToPwm(-152.5, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM);
+
+  WheelController c;
+  CHECK("control: zero setpoint outputs zero",
+        near(wheelControl(c, 0.0, -50.0, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX), 0.0));
+
+  c.integral = 33.0;
+  wheelControl(c, 0.0, 0.0, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX);
+  CHECK("control: stopping clears the integral", near(c.integral, 0.0));
+
+  // At the setpoint with no history, the output is exactly the feed-forward.
+  WheelController d;
+  CHECK("control: on target -> feed-forward only",
+        near(wheelControl(d, -152.5, -152.5, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX), ff));
+
+  // dt is explicit: the same error for the same time gives the same integral,
+  // however the caller is scheduled. This is what ArduPID's timer got wrong.
+  WheelController e, f;
+  for (int i = 0; i < 20; i++)
+    wheelControl(e, -152.5, -132.5, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX);
+  for (int i = 0; i < 20; i++)
+    wheelControl(f, -152.5, -132.5, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX);
+  CHECK("control: integral depends only on error and dt", near(e.integral, f.integral));
+  CHECK("control: one second of -20 tick error integrates to -Ki*20", near(e.integral, -KI * 20.0 * 1.0, 1e-9));
+
+  // A wheel stuck at zero must not wind the integral up while saturated.
+  WheelController g;
+  for (int i = 0; i < 400; i++)
+    wheelControl(g, -152.5, 0.0, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX);
+  CHECK("control: integral stays within its limit", std::fabs(g.integral) <= I_LIMIT + 1e-9);
+  double out = wheelControl(g, -152.5, 0.0, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX);
+  CHECK("control: output stays within the pwm range", std::fabs(out) <= PWM_MAX + 1e-9);
+
+  // Closing the loop against the measured motor ramp must settle, not oscillate.
+  WheelController h;
+  double ticks = 0.0, last = 0.0;
+  for (int i = 0; i < 200; i++)
+  {
+    double pwm = wheelControl(h, -152.5, ticks, KP, KI, DT, PWM_FLOOR, TICKS_AT_FLOOR, TICKS_PER_PWM, I_LIMIT, PWM_MAX);
+    int command = motorCommand(-152.5, pwm, PWM_FLOOR, PWM_MAX);
+    double target = -pwmToTicks(std::fabs((double)command));
+    ticks += 0.6 * (target - ticks); // first-order motor response
+    last = ticks;
+  }
+  CHECK("control: settles on the setpoint against the measured ramp", near(last, -152.5, 2.0));
+}
+
 int main()
 {
   test_straight();
@@ -138,6 +241,10 @@ int main()
   test_meters_ticks_roundtrip();
   test_angle_wrap();
   test_odometry_square_loop();
+  test_feedforward();
+  test_motor_command();
+  test_setpoint_ceiling_is_reachable();
+  test_wheel_control();
 
   std::printf("\n%d/%d tests passed\n", tests_run - tests_failed, tests_run);
   return tests_failed == 0 ? 0 : 1;

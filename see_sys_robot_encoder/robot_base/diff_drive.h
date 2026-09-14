@@ -85,6 +85,91 @@ inline WheelSetpoints cmdVelToWheelSetpoints(
   return {left, right};
 }
 
+// Inverse of the measured PWM -> wheel-speed ramp: the PWM that runs a wheel
+// at this speed open-loop. The motor cannot turn at all below pwm_floor, so any
+// nonzero request starts there -- the PID then only has to trim the remainder,
+// instead of having to climb out of the dead zone on error alone.
+inline double ticksToPwm(
+    double ticks_per_interval,
+    double pwm_floor, double ticks_at_floor, double ticks_per_pwm)
+{
+  double magnitude = std::fabs(ticks_per_interval);
+  if (magnitude == 0.0)
+    return 0.0;
+
+  double pwm = pwm_floor + (magnitude - ticks_at_floor) / ticks_per_pwm;
+  if (pwm < pwm_floor)
+    pwm = pwm_floor;
+
+  return std::copysign(pwm, ticks_per_interval);
+}
+
+// Controller output -> the value actually written to the motor driver. A wheel
+// that is asked to turn is never left inside the dead zone (that chops the loop
+// into a full-on/full-off oscillation); only a zero setpoint stops it.
+inline int motorCommand(double setpoint_ticks, double controller_output, double pwm_floor, double pwm_max)
+{
+  if (setpoint_ticks == 0.0)
+    return 0;
+
+  double sign = setpoint_ticks < 0.0 ? -1.0 : 1.0;
+  double command = controller_output;
+  if (command * sign < pwm_floor)
+    command = sign * pwm_floor;
+
+  if (command > pwm_max)
+    command = pwm_max;
+  else if (command < -pwm_max)
+    command = -pwm_max;
+
+  return (int)command;
+}
+
+struct WheelController
+{
+  double integral = 0.0;
+};
+
+// Feed-forward plus PI trim, in PWM units. dt is passed in rather than measured,
+// so a gain means the same thing on every cycle no matter how the caller is
+// scheduled. The integral only accumulates while the output is off its limits,
+// and unwinds freely once it is pinned there.
+inline double wheelControl(
+    WheelController &state,
+    double setpoint_ticks, double measured_ticks,
+    double kp, double ki, double dt_s,
+    double pwm_floor, double ticks_at_floor, double ticks_per_pwm,
+    double integral_limit, double pwm_max)
+{
+  if (setpoint_ticks == 0.0)
+  {
+    state.integral = 0.0;
+    return 0.0;
+  }
+
+  double feed_forward = ticksToPwm(setpoint_ticks, pwm_floor, ticks_at_floor, ticks_per_pwm);
+  double error = setpoint_ticks - measured_ticks;
+
+  double candidate = state.integral + ki * error * dt_s;
+  if (candidate > integral_limit)
+    candidate = integral_limit;
+  else if (candidate < -integral_limit)
+    candidate = -integral_limit;
+
+  double proposed = feed_forward + kp * error + candidate;
+  bool saturated = proposed > pwm_max || proposed < -pwm_max;
+  if (!saturated || std::fabs(candidate) < std::fabs(state.integral))
+    state.integral = candidate;
+
+  double output = feed_forward + kp * error + state.integral;
+  if (output > pwm_max)
+    output = pwm_max;
+  else if (output < -pwm_max)
+    output = -pwm_max;
+
+  return output;
+}
+
 // Encoder deltas (already in the PID's forward-positive sign convention) ->
 // odometry, integrated in place into `pose`. Returns the instantaneous
 // linear/angular velocity for the same interval

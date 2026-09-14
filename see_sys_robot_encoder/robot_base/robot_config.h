@@ -35,11 +35,15 @@ constexpr float LOW_BATTERY_THRESHOLD_V = 6.6;
 constexpr float ADC_MAX_VALUE = 4095.0;
 constexpr float ADC_LOGIC_LEVEL_V = 3.3;
 
-// ==== PID gains -- unchanged from POC code ====
+// ==== PI gains ====
+// Error is in encoder ticks per control interval, output is PWM. The
+// feed-forward below supplies the bulk of the command, so these only trim:
+// the integral needs to cover the feed-forward's error, measured at ~10-15 PWM.
+// No derivative term -- it would differentiate encoder quantisation.
 constexpr double PID_P = 0.4;
-constexpr double PID_I = 0.001;
-constexpr double PID_D = 0.05;
-constexpr int PID_OUTPUT_LIMIT = 120;
+constexpr double PID_I = 2.5;
+constexpr int PID_INTEGRAL_LIMIT = 60;
+constexpr int PWM_MAX = 255;
 
 // ==== Calibration ====
 constexpr double COUNTS_PER_WHEEL_REV = 4216.0;
@@ -49,7 +53,13 @@ constexpr bool MOTOR_A_IS_LEFT = false;
 constexpr double LEFT_DIR_SIGN = -1.0;
 constexpr double RIGHT_DIR_SIGN = -1.0;
 constexpr double MAX_TICKS_PER_INTERVAL = 350.0;
-constexpr int SPEED_DEADBAND = 40;
+
+// ==== Motor feed-forward (ramp test, docs/calibration_log_1.md section 5) ====
+// The wheel does not turn at all below PWM_DEADBAND_FLOOR, and jumps straight
+// to TICKS_AT_PWM_FLOOR once it does; above that the ramp is linear.
+constexpr int PWM_DEADBAND_FLOOR = 40;
+constexpr double TICKS_AT_PWM_FLOOR = 61.0;
+constexpr double TICKS_PER_PWM = 1.419;
 
 // ==== Control loop timing ====
 constexpr unsigned long CONTROL_PERIOD_MS = 50;
