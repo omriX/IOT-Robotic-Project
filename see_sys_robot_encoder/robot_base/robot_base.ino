@@ -62,6 +62,13 @@ constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
 
 AsyncWebServer server(80);
 
+// Log Serial and WebSerial
+void dprintln(const String &line)
+{
+  Serial.println(line);
+  WebSerial.println(line);
+}
+
 ESP32Encoder encoderA;
 ESP32Encoder encoderB;
 
@@ -253,8 +260,7 @@ void publish_odom()
     static unsigned long last_warn_ms = 0;
     if (millis() - last_warn_ms > 2000)
     {
-      WebSerial.print("odom publish failed, rc=");
-      WebSerial.println((int)rc);
+      dprintln("odom publish failed, rc=" + String((int)rc));
       last_warn_ms = millis();
     }
   }
@@ -296,18 +302,10 @@ void cmd_vel_callback(const void *msgin)
   shared.last_cmd_ms = millis();
   portEXIT_CRITICAL(&sharedStateMux);
 
-  WebSerial.print("cmd_vel v:");
-  WebSerial.print(msg->linear.x);
-  WebSerial.print(" w:");
-  WebSerial.print(msg->angular.z);
-  WebSerial.print(" | wheel_mps L:");
-  WebSerial.print(wv.left_mps);
-  WebSerial.print(" R:");
-  WebSerial.print(wv.right_mps);
-  WebSerial.print(" | ticks_per_interval L:");
-  WebSerial.print(sp.left_ticks_per_interval);
-  WebSerial.print(" R:");
-  WebSerial.println(sp.right_ticks_per_interval);
+  dprintln("cmd_vel v:" + String(msg->linear.x) + " w:" + String(msg->angular.z) +
+           " | wheel_mps L:" + String(wv.left_mps) + " R:" + String(wv.right_mps) +
+           " | ticks_per_interval L:" + String(sp.left_ticks_per_interval) +
+           " R:" + String(sp.right_ticks_per_interval));
 }
 
 bool create_entities()
@@ -380,16 +378,17 @@ void destroy_entities()
   portEXIT_CRITICAL(&sharedStateMux);
 }
 
-// Debug telemetry -- WebSerial only, never Serial, once micro-ROS owns the UART.
+// Debug telemetry
 void log_state()
 {
   const char *names[] = {"WAITING_AGENT", "AGENT_AVAILABLE", "AGENT_CONNECTED", "AGENT_DISCONNECTED"};
-  WebSerial.print("state:");
-  WebSerial.println(names[state]);
+  dprintln(String("state:") + names[state]);
 }
 
 void setup()
 {
+  Serial.begin(115200);
+
   // claim the pins and zero them before WiFi/anything else gets a chance to run.
   pinMode(MOTOR_A_DIRECTION_PIN, OUTPUT);
   pinMode(MOTOR_A_PWM_PIN, OUTPUT);
@@ -416,6 +415,7 @@ void setup()
   statusLedBegin(statusLed, LOW_BATTERY_LED_PIN);
 
   // WiFi + WebSerial first, so the self-test below can report its result.
+  Serial.println("connecting wifi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.waitForConnectResult(); // best-effort; WebSerial just won't be reachable if this fails
@@ -423,17 +423,18 @@ void setup()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/plain", "robot_base. Open http://" + WiFi.localIP().toString() + "/webserial"); });
   WebSerial.begin(&server);
+  dprintln("wifi ip: " + WiFi.localIP().toString());
   WebSerial.onMessage([](const String &msg)
                       {
     if (msg == "freewheel on")
     {
       freewheelMode = true;
-      WebSerial.println("freewheel on -- motors disabled, encoders still counting");
+      dprintln("freewheel on -- motors disabled, encoders still counting");
     }
     else if (msg == "freewheel off")
     {
       freewheelMode = false;
-      WebSerial.println("freewheel off");
+      dprintln("freewheel off");
     } });
   server.begin();
 
@@ -442,15 +443,9 @@ void setup()
   SelftestResult testB = runMotorSelftest(MOTOR_B_DIRECTION_PIN, MOTOR_B_PWM_PIN, encoderB);
   selftestPassed = testA.passed && testB.passed;
 
-  WebSerial.print(selftestPassed ? "self-test passed" : "self-test FAILED");
-  WebSerial.print(" | A fwd:");
-  WebSerial.print(testA.forward_delta);
-  WebSerial.print(" bwd:");
-  WebSerial.print(testA.backward_delta);
-  WebSerial.print(" | B fwd:");
-  WebSerial.print(testB.forward_delta);
-  WebSerial.print(" bwd:");
-  WebSerial.println(testB.backward_delta);
+  dprintln(String(selftestPassed ? "self-test passed" : "self-test FAILED") +
+           " | A fwd:" + testA.forward_delta + " bwd:" + testA.backward_delta +
+           " | B fwd:" + testB.forward_delta + " bwd:" + testB.backward_delta);
 
   encoderA.clearCount();
   encoderB.clearCount();
@@ -496,7 +491,7 @@ void loop()
     }
     break;
   case AGENT_DISCONNECTED:
-    WebSerial.println("agent lost, stopping");
+    dprintln("agent lost, stopping");
     rosLog(logger, rcl_interfaces__msg__Log__WARN, "agent disconnected");
     destroy_entities();
     state = WAITING_AGENT;
@@ -510,7 +505,7 @@ void loop()
   bool tripped = millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS;
   if (tripped && !watchdogTripped)
   {
-    WebSerial.println("cmd_vel watchdog: no command, stopping");
+    dprintln("cmd_vel watchdog: no command, stopping");
     if (state == AGENT_CONNECTED)
       rosLog(logger, rcl_interfaces__msg__Log__WARN, "cmd_vel watchdog: no command, stopping");
   }
@@ -530,12 +525,7 @@ void loop()
     portENTER_CRITICAL(&sharedStateMux);
     double x = shared.x, y = shared.y, theta = shared.theta;
     portEXIT_CRITICAL(&sharedStateMux);
-    WebSerial.print("odom x:");
-    WebSerial.print(x);
-    WebSerial.print(" y:");
-    WebSerial.print(y);
-    WebSerial.print(" theta:");
-    WebSerial.println(theta);
+    dprintln("odom x:" + String(x) + " y:" + String(y) + " theta:" + String(theta));
   }
 
   WebSerial.loop();
