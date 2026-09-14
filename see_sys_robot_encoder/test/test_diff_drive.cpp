@@ -128,6 +128,15 @@ void test_odometry_square_loop()
   CHECK("square loop: returns to theta=0 (mod 2pi)", near(wrapToPi(pose.theta), 0.0, 1e-6));
 }
 
+void test_yaw_to_quaternion()
+{
+  Quaternion2D q0 = yawToQuaternion(0.0);
+  CHECK("yaw 0 -> identity quaternion", near(q0.z, 0.0) && near(q0.w, 1.0));
+
+  Quaternion2D qpi = yawToQuaternion(PI_D);
+  CHECK("yaw pi -> qz=1, qw=0", near(qpi.z, 1.0, 1e-6) && near(qpi.w, 0.0, 1e-6));
+}
+
 int main()
 {
   test_straight();
@@ -138,6 +147,7 @@ int main()
   test_meters_ticks_roundtrip();
   test_angle_wrap();
   test_odometry_square_loop();
+  test_yaw_to_quaternion();
 
   std::printf("\n%d/%d tests passed\n", tests_run - tests_failed, tests_run);
   return tests_failed == 0 ? 0 : 1;

@@ -50,6 +50,18 @@ struct OdometryDelta
   double angular_w; // rad/s
 };
 
+struct Quaternion2D
+{
+  double z;
+  double w;
+};
+
+// Planar yaw -> quaternion (REP-103): qx = qy = 0 always for a 2D robot.
+inline Quaternion2D yawToQuaternion(double theta)
+{
+  return {std::sin(theta / 2.0), std::cos(theta / 2.0)};
+}
+
 // Standard diff-drive forward kinematics: positive angular_w = CCW yaw
 // (REP-103) means the right wheel speeds up and the left wheel slows down
 // (or reverses) -- viewed from above, that spins the robot CCW.

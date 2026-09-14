@@ -17,6 +17,7 @@
 #include <rmw_microros/rmw_microros.h>
 #include <geometry_msgs/msg/twist.h>
 #include <std_msgs/msg/u_int8.h>
+#include <nav_msgs/msg/odometry.h>
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -192,7 +193,72 @@ rcl_subscription_t cmd_vel_subscriber;
 geometry_msgs__msg__Twist cmd_vel_msg;
 rcl_publisher_t status_publisher;
 std_msgs__msg__UInt8 status_msg;
+rcl_publisher_t odom_publisher;
+nav_msgs__msg__Odometry odom_msg;
+bool timeSynced = false;
 RosLogger logger;
+
+// odom_msg's frame ids and covariance never change, so set them once here
+// rather than on every reconnect -- only the publisher handle itself is
+// torn down and recreated in create_entities()/destroy_entities().
+void initOdomMsg()
+{
+  nav_msgs__msg__Odometry__init(&odom_msg);
+  odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, "odom");
+  odom_msg.child_frame_id = micro_ros_string_utilities_set(odom_msg.child_frame_id, "base_link");
+
+  // Conservative fixed diagonal: 1e6 on z/roll/pitch tells downstream fusion
+  // "a planar robot has no information here." Tune after the course test.
+  for (int i = 0; i < 36; i++)
+  {
+    odom_msg.pose.covariance[i] = 0.0;
+    odom_msg.twist.covariance[i] = 0.0;
+  }
+  const double diag[6] = {0.01, 0.01, 1e6, 1e6, 1e6, 0.05};
+  for (int i = 0; i < 6; i++)
+  {
+    odom_msg.pose.covariance[i * 6 + i] = diag[i];
+    odom_msg.twist.covariance[i * 6 + i] = diag[i];
+  }
+}
+
+void publish_odom()
+{
+  portENTER_CRITICAL(&sharedStateMux);
+  double x = shared.x, y = shared.y, theta = shared.theta;
+  double v = shared.linear_v, w = shared.angular_w;
+  portEXIT_CRITICAL(&sharedStateMux);
+
+  int64_t stamp_ns = timeSynced ? rmw_uros_epoch_nanos() : (int64_t)millis() * 1000000LL;
+  odom_msg.header.stamp.sec = (int32_t)(stamp_ns / 1000000000LL);
+  odom_msg.header.stamp.nanosec = (uint32_t)(stamp_ns % 1000000000LL);
+
+  odom_msg.pose.pose.position.x = x;
+  odom_msg.pose.pose.position.y = y;
+  odom_msg.pose.pose.position.z = 0.0;
+
+  Quaternion2D q = yawToQuaternion(theta);
+  odom_msg.pose.pose.orientation.x = 0.0;
+  odom_msg.pose.pose.orientation.y = 0.0;
+  odom_msg.pose.pose.orientation.z = q.z;
+  odom_msg.pose.pose.orientation.w = q.w;
+
+  odom_msg.twist.twist.linear.x = v;
+  odom_msg.twist.twist.linear.y = 0.0;
+  odom_msg.twist.twist.angular.z = w;
+
+  rcl_ret_t rc = rcl_publish(&odom_publisher, &odom_msg, NULL);
+  if (rc != RCL_RET_OK)
+  {
+    static unsigned long last_warn_ms = 0;
+    if (millis() - last_warn_ms > 2000)
+    {
+      WebSerial.print("odom publish failed, rc=");
+      WebSerial.println((int)rc);
+      last_warn_ms = millis();
+    }
+  }
+}
 
 bool selftestPassed = false;
 bool selftestLogged = false;
@@ -261,8 +327,19 @@ bool create_entities()
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8),
       "robot_base/status"));
 
+  // Odometry serializes to ~720 B, over the default 512 B MTU -- must be
+  // reliable so it fragments instead of getting silently dropped.
+  RCCHECK(rclc_publisher_init_default(
+      &odom_publisher, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
+      "odom"));
+
   if (!rosLoggerInit(logger, &node))
     return false;
+
+  timeSynced = (RMW_RET_OK == rmw_uros_sync_session(1000));
+  if (!timeSynced)
+    rosLog(logger, rcl_interfaces__msg__Log__WARN, "time sync failed, /odom timestamps fall back to millis()");
 
   executor = rclc_executor_get_zero_initialized_executor();
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
@@ -288,6 +365,8 @@ void destroy_entities()
   rc = rcl_subscription_fini(&cmd_vel_subscriber, &node);
   (void)rc;
   rc = rcl_publisher_fini(&status_publisher, &node);
+  (void)rc;
+  rc = rcl_publisher_fini(&odom_publisher, &node);
   (void)rc;
   rosLoggerFini(logger);
   rclc_executor_fini(&executor);
@@ -377,6 +456,8 @@ void setup()
   encoderB.clearCount();
   shared.faulted = !selftestPassed;
 
+  initOdomMsg();
+
   xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
 
   set_microros_wifi_transports(
@@ -405,6 +486,7 @@ void loop()
     if (state == AGENT_CONNECTED)
     {
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+      EXECUTE_EVERY_N_MS(CONTROL_PERIOD_MS, publish_odom());
       EXECUTE_EVERY_N_MS(1000, {
         portENTER_CRITICAL(&sharedStateMux);
         status_msg.data = shared.faulted ? 1 : 0;
