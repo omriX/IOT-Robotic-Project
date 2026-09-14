@@ -18,6 +18,7 @@
 #include <geometry_msgs/msg/twist.h>
 #include <std_msgs/msg/u_int8.h>
 #include <nav_msgs/msg/odometry.h>
+#include <sensor_msgs/msg/battery_state.h>
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -266,6 +267,42 @@ void publish_odom()
   }
 }
 
+rcl_publisher_t battery_publisher;
+sensor_msgs__msg__BatteryState battery_msg;
+float lastBatteryVoltage = 0;
+
+void initBatteryMsg()
+{
+  sensor_msgs__msg__BatteryState__init(&battery_msg);
+  battery_msg.temperature = NAN;
+  battery_msg.current = NAN;
+  battery_msg.charge = NAN;
+  battery_msg.capacity = NAN;
+  battery_msg.design_capacity = NAN;
+  battery_msg.percentage = NAN;
+  battery_msg.power_supply_status = sensor_msgs__msg__BatteryState__POWER_SUPPLY_STATUS_UNKNOWN;
+  battery_msg.power_supply_health = sensor_msgs__msg__BatteryState__POWER_SUPPLY_HEALTH_UNKNOWN;
+  battery_msg.power_supply_technology = sensor_msgs__msg__BatteryState__POWER_SUPPLY_TECHNOLOGY_UNKNOWN;
+}
+
+float measure_battery()
+{
+  float adc_voltage = (analogRead(BATTERY_PIN) / ADC_MAX_VALUE) * ADC_LOGIC_LEVEL_V;
+  return adc_voltage * BATTERY_VOLTAGE_DIVIDER_FACTOR;
+}
+
+void publish_battery()
+{
+  int64_t stamp_ns = timeSynced ? rmw_uros_epoch_nanos() : (int64_t)millis() * 1000000LL;
+  battery_msg.header.stamp.sec = (int32_t)(stamp_ns / 1000000000LL);
+  battery_msg.header.stamp.nanosec = (uint32_t)(stamp_ns % 1000000000LL);
+
+  battery_msg.voltage = lastBatteryVoltage;
+  battery_msg.present = true;
+
+  rcl_publish(&battery_publisher, &battery_msg, NULL);
+}
+
 bool selftestPassed = false;
 bool selftestLogged = false;
 
@@ -332,6 +369,11 @@ bool create_entities()
       ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
       "odom"));
 
+  RCCHECK(rclc_publisher_init_default(
+      &battery_publisher, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, BatteryState),
+      "battery_state"));
+
   if (!rosLoggerInit(logger, &node))
     return false;
 
@@ -365,6 +407,8 @@ void destroy_entities()
   rc = rcl_publisher_fini(&status_publisher, &node);
   (void)rc;
   rc = rcl_publisher_fini(&odom_publisher, &node);
+  (void)rc;
+  rc = rcl_publisher_fini(&battery_publisher, &node);
   (void)rc;
   rosLoggerFini(logger);
   rclc_executor_fini(&executor);
@@ -452,6 +496,8 @@ void setup()
   shared.faulted = !selftestPassed;
 
   initOdomMsg();
+  initBatteryMsg();
+  lastBatteryVoltage = measure_battery();
 
   xTaskCreatePinnedToCore(controlTask, "PID_Task", 4096, NULL, 1, NULL, 1);
 
@@ -482,6 +528,7 @@ void loop()
     {
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
       EXECUTE_EVERY_N_MS(CONTROL_PERIOD_MS, publish_odom());
+      EXECUTE_EVERY_N_MS(1000, publish_battery());
       EXECUTE_EVERY_N_MS(1000, {
         portENTER_CRITICAL(&sharedStateMux);
         status_msg.data = shared.faulted ? 1 : 0;
@@ -511,10 +558,17 @@ void loop()
   }
   watchdogTripped = tripped;
 
+  static unsigned long last_battery_read_ms = 0;
+  if (millis() - last_battery_read_ms >= 500)
+  {
+    last_battery_read_ms = millis();
+    lastBatteryVoltage = measure_battery();
+  }
+
   portENTER_CRITICAL(&sharedStateMux);
   bool faulted = shared.faulted;
   portEXIT_CRITICAL(&sharedStateMux);
-  statusLedUpdate(statusLed, faulted, false, false, state == AGENT_CONNECTED);
+  statusLedUpdate(statusLed, faulted, lastBatteryVoltage < LOW_BATTERY_THRESHOLD_V, false, state == AGENT_CONNECTED);
 
   static unsigned long last_log_ms = 0;
   if (millis() - last_log_ms >= 1000)
