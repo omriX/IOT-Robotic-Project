@@ -19,6 +19,7 @@
 #include <std_msgs/msg/u_int8.h>
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/battery_state.h>
+#include <rclc_parameter/rclc_parameter.h>
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -26,8 +27,10 @@
 #include <WebSerial.h>
 #include <ESP32Encoder.h>
 #include <ArduPID.h>
+#include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <string.h>
 
 #include "robot_config.h"
 #include "diff_drive.h"
@@ -35,16 +38,16 @@
 #include "selftest.h"
 #include "ros_log.h"
 
-constexpr double TICKS_PER_METER = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);
 constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
 
-#define RCCHECK(fn)            \
-  {                            \
-    rcl_ret_t temp_rc = fn;    \
-    if (temp_rc != RCL_RET_OK) \
-    {                          \
-      return false;            \
-    }                          \
+#define RCCHECK(fn)                                                                            \
+  {                                                                                            \
+    rcl_ret_t temp_rc = fn;                                                                    \
+    if (temp_rc != RCL_RET_OK)                                                                 \
+    {                                                                                          \
+      dprintln("RCCHECK failed at line " + String(__LINE__) + ": rc=" + String((int)temp_rc)); \
+      return false;                                                                            \
+    }                                                                                          \
   }
 #define EXECUTE_EVERY_N_MS(MS, X)      \
   do                                   \
@@ -89,6 +92,12 @@ struct SharedState
   // written by controlTask, read by loop() for logging (and later /odom)
   double x = 0, y = 0, theta = 0;
   double linear_v = 0, angular_w = 0;
+  // Live-tunable via rclc_parameter_server
+  double wheel_radius_m = WHEEL_RADIUS_M;
+  double wheel_base_m = WHEEL_BASE_M;
+  double max_linear_mps = DEFAULT_MAX_LINEAR_MPS;
+  double max_angular_rps = DEFAULT_MAX_ANGULAR_RPS;
+  unsigned long cmd_vel_timeout_ms = CMD_VEL_TIMEOUT_MS;
 };
 SharedState shared;
 
@@ -143,9 +152,12 @@ void controlTask(void *pvParameters)
     double targetRight = shared.target_right_ticks;
     unsigned long lastCmdMs = shared.last_cmd_ms;
     bool faulted = shared.faulted;
+    unsigned long cmdVelTimeoutMs = shared.cmd_vel_timeout_ms;
+    double wheelBaseM = shared.wheel_base_m;
+    double ticksPerM = ticksPerMeter(COUNTS_PER_WHEEL_REV, shared.wheel_radius_m);
     portEXIT_CRITICAL(&sharedStateMux);
 
-    if (faulted || millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS)
+    if (faulted || millis() - lastCmdMs > cmdVelTimeoutMs)
     {
       targetLeft = 0;
       targetRight = 0;
@@ -179,7 +191,7 @@ void controlTask(void *pvParameters)
 
     double deltaLeftTicks = (MOTOR_A_IS_LEFT ? inputA : inputB) * LEFT_DIR_SIGN;
     double deltaRightTicks = (MOTOR_A_IS_LEFT ? inputB : inputA) * RIGHT_DIR_SIGN;
-    OdometryDelta odom = integrateOdometry(pose, deltaLeftTicks, deltaRightTicks, TICKS_PER_METER, WHEEL_BASE_M, CONTROL_PERIOD_S);
+    OdometryDelta odom = integrateOdometry(pose, deltaLeftTicks, deltaRightTicks, ticksPerM, wheelBaseM, CONTROL_PERIOD_S);
 
     portENTER_CRITICAL(&sharedStateMux);
     shared.x = pose.x;
@@ -303,6 +315,96 @@ void publish_battery()
   rcl_publish(&battery_publisher, &battery_msg, NULL);
 }
 
+Preferences prefs;
+rclc_parameter_server_t param_server;
+unsigned long odomPublishPeriodMs = CONTROL_PERIOD_MS;
+
+void loadParamsFromNvs()
+{
+  double wheelRadiusM = prefs.getDouble("wheel_radius_m", WHEEL_RADIUS_M);
+  double wheelBaseM = prefs.getDouble("wheel_base_m", WHEEL_BASE_M);
+  double maxLinearMps = prefs.getDouble("max_linear_mps", DEFAULT_MAX_LINEAR_MPS);
+  double maxAngularRps = prefs.getDouble("max_angular_rps", DEFAULT_MAX_ANGULAR_RPS);
+  unsigned long cmdVelTimeoutMs = (unsigned long)prefs.getInt("cmd_to_ms", (int)CMD_VEL_TIMEOUT_MS);
+
+  portENTER_CRITICAL(&sharedStateMux);
+  shared.wheel_radius_m = wheelRadiusM;
+  shared.wheel_base_m = wheelBaseM;
+  shared.max_linear_mps = maxLinearMps;
+  shared.max_angular_rps = maxAngularRps;
+  shared.cmd_vel_timeout_ms = cmdVelTimeoutMs;
+  portEXIT_CRITICAL(&sharedStateMux);
+
+  logger.min_level = (uint8_t)prefs.getInt("log_level", DEFAULT_LOG_LEVEL);
+  int hz = prefs.getInt("odom_rate_hz", DEFAULT_ODOM_RATE_HZ);
+  odomPublishPeriodMs = hz > 0 ? 1000 / hz : CONTROL_PERIOD_MS;
+}
+
+bool on_parameter_changed(const Parameter *old_param, const Parameter *new_param, void *context)
+{
+  (void)context;
+  (void)old_param;
+  if (new_param == NULL)
+    return true;
+
+  const char *name = new_param->name.data;
+  if (strcmp(name, "log_level") == 0)
+  {
+    logger.min_level = (uint8_t)new_param->value.integer_value;
+    prefs.putInt("log_level", (int)new_param->value.integer_value);
+  }
+  else if (strcmp(name, "cmd_vel_timeout_ms") == 0)
+  {
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.cmd_vel_timeout_ms = (unsigned long)new_param->value.integer_value;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putInt("cmd_to_ms", (int)new_param->value.integer_value);
+  }
+  else if (strcmp(name, "odom_rate_hz") == 0)
+  {
+    long hz = new_param->value.integer_value;
+    if (hz <= 0)
+      return false;
+    odomPublishPeriodMs = 1000 / hz;
+    prefs.putInt("odom_rate_hz", (int)hz);
+  }
+  else if (strcmp(name, "wheel_radius_m") == 0)
+  {
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.wheel_radius_m = new_param->value.double_value;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putDouble("wheel_radius_m", new_param->value.double_value);
+  }
+  else if (strcmp(name, "wheel_base_m") == 0)
+  {
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.wheel_base_m = new_param->value.double_value;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putDouble("wheel_base_m", new_param->value.double_value);
+  }
+  else if (strcmp(name, "max_linear_mps") == 0)
+  {
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.max_linear_mps = new_param->value.double_value;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putDouble("max_linear_mps", new_param->value.double_value);
+  }
+  else if (strcmp(name, "max_angular_rps") == 0)
+  {
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.max_angular_rps = new_param->value.double_value;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putDouble("max_angular_rps", new_param->value.double_value);
+  }
+  else
+  {
+    return true;
+  }
+
+  ROS_LOGF(logger, rcl_interfaces__msg__Log__INFO, "param changed: %s", name);
+  return true;
+}
+
 bool selftestPassed = false;
 bool selftestLogged = false;
 
@@ -321,16 +423,22 @@ void cmd_vel_callback(const void *msgin)
 {
   portENTER_CRITICAL(&sharedStateMux);
   bool faulted = shared.faulted;
+  double wheelBaseM = shared.wheel_base_m;
+  double ticksPerM = ticksPerMeter(COUNTS_PER_WHEEL_REV, shared.wheel_radius_m);
+  double maxLinear = shared.max_linear_mps;
+  double maxAngular = shared.max_angular_rps;
   portEXIT_CRITICAL(&sharedStateMux);
   if (faulted)
     return;
 
   const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msgin;
+  double linear_v = constrain(msg->linear.x, -maxLinear, maxLinear);
+  double angular_w = constrain(msg->angular.z, -maxAngular, maxAngular);
 
-  WheelVelocities wv = wheelLinearVelocities(msg->linear.x, msg->angular.z, WHEEL_BASE_M);
+  WheelVelocities wv = wheelLinearVelocities(linear_v, angular_w, wheelBaseM);
   WheelSetpoints sp = cmdVelToWheelSetpoints(
-      msg->linear.x, msg->angular.z,
-      WHEEL_BASE_M, TICKS_PER_METER, CONTROL_PERIOD_S,
+      linear_v, angular_w,
+      wheelBaseM, ticksPerM, CONTROL_PERIOD_S,
       LEFT_DIR_SIGN, RIGHT_DIR_SIGN, MAX_TICKS_PER_INTERVAL);
 
   portENTER_CRITICAL(&sharedStateMux);
@@ -339,7 +447,7 @@ void cmd_vel_callback(const void *msgin)
   shared.last_cmd_ms = millis();
   portEXIT_CRITICAL(&sharedStateMux);
 
-  dprintln("cmd_vel v:" + String(msg->linear.x) + " w:" + String(msg->angular.z) +
+  dprintln("cmd_vel v:" + String(linear_v) + " w:" + String(angular_w) +
            " | wheel_mps L:" + String(wv.left_mps) + " R:" + String(wv.right_mps) +
            " | ticks_per_interval L:" + String(sp.left_ticks_per_interval) +
            " R:" + String(sp.right_ticks_per_interval));
@@ -382,8 +490,34 @@ bool create_entities()
     rosLog(logger, rcl_interfaces__msg__Log__WARN, "time sync failed, /odom timestamps fall back to millis()");
 
   executor = rclc_executor_get_zero_initialized_executor();
-  RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 1 + RCLC_EXECUTOR_PARAMETER_SERVER_HANDLES, &allocator));
   RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_subscriber, &cmd_vel_msg, &cmd_vel_callback, ON_NEW_DATA));
+
+  rclc_parameter_options_t param_options = {false, 10, false, false};
+  RCCHECK(rclc_parameter_server_init_with_option(&param_server, &node, &param_options));
+  RCCHECK(rclc_executor_add_parameter_server(&executor, &param_server, &on_parameter_changed));
+
+  portENTER_CRITICAL(&sharedStateMux);
+  double wheelRadiusM = shared.wheel_radius_m, wheelBaseM = shared.wheel_base_m;
+  double maxLinearMps = shared.max_linear_mps, maxAngularRps = shared.max_angular_rps;
+  int64_t cmdVelTimeoutMs = (int64_t)shared.cmd_vel_timeout_ms;
+  portEXIT_CRITICAL(&sharedStateMux);
+
+  RCCHECK(rclc_add_parameter(&param_server, "log_level", RCLC_PARAMETER_INT));
+  RCCHECK(rclc_add_parameter(&param_server, "cmd_vel_timeout_ms", RCLC_PARAMETER_INT));
+  RCCHECK(rclc_add_parameter(&param_server, "odom_rate_hz", RCLC_PARAMETER_INT));
+  RCCHECK(rclc_add_parameter(&param_server, "wheel_radius_m", RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, "wheel_base_m", RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, "max_linear_mps", RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, "max_angular_rps", RCLC_PARAMETER_DOUBLE));
+
+  RCCHECK(rclc_parameter_set_int(&param_server, "log_level", logger.min_level));
+  RCCHECK(rclc_parameter_set_int(&param_server, "cmd_vel_timeout_ms", cmdVelTimeoutMs));
+  RCCHECK(rclc_parameter_set_int(&param_server, "odom_rate_hz", 1000 / odomPublishPeriodMs));
+  RCCHECK(rclc_parameter_set_double(&param_server, "wheel_radius_m", wheelRadiusM));
+  RCCHECK(rclc_parameter_set_double(&param_server, "wheel_base_m", wheelBaseM));
+  RCCHECK(rclc_parameter_set_double(&param_server, "max_linear_mps", maxLinearMps));
+  RCCHECK(rclc_parameter_set_double(&param_server, "max_angular_rps", maxAngularRps));
 
   rosLog(logger, rcl_interfaces__msg__Log__INFO, "robot_base connected");
   if (!selftestLogged)
@@ -410,6 +544,8 @@ void destroy_entities()
   (void)rc;
   rc = rcl_publisher_fini(&battery_publisher, &node);
   (void)rc;
+  rc = rclc_parameter_server_fini(&param_server, &node);
+  (void)rc;
   rosLoggerFini(logger);
   rclc_executor_fini(&executor);
   rc = rcl_node_fini(&node);
@@ -432,6 +568,9 @@ void log_state()
 void setup()
 {
   Serial.begin(115200);
+
+  prefs.begin("robot_base", false);
+  loadParamsFromNvs();
 
   // claim the pins and zero them before WiFi/anything else gets a chance to run.
   pinMode(MOTOR_A_DIRECTION_PIN, OUTPUT);
@@ -523,11 +662,11 @@ void loop()
       destroy_entities();
     break;
   case AGENT_CONNECTED:
-    EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
+    EXECUTE_EVERY_N_MS(1000, state = (RMW_RET_OK == rmw_uros_ping_agent(300, 3)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
     if (state == AGENT_CONNECTED)
     {
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
-      EXECUTE_EVERY_N_MS(CONTROL_PERIOD_MS, publish_odom());
+      EXECUTE_EVERY_N_MS(odomPublishPeriodMs, publish_odom());
       EXECUTE_EVERY_N_MS(1000, publish_battery());
       EXECUTE_EVERY_N_MS(1000, {
         portENTER_CRITICAL(&sharedStateMux);
@@ -548,8 +687,9 @@ void loop()
   static bool watchdogTripped = false;
   portENTER_CRITICAL(&sharedStateMux);
   unsigned long lastCmdMs = shared.last_cmd_ms;
+  unsigned long cmdVelTimeoutMs = shared.cmd_vel_timeout_ms;
   portEXIT_CRITICAL(&sharedStateMux);
-  bool tripped = millis() - lastCmdMs > CMD_VEL_TIMEOUT_MS;
+  bool tripped = millis() - lastCmdMs > cmdVelTimeoutMs;
   if (tripped && !watchdogTripped)
   {
     dprintln("cmd_vel watchdog: no command, stopping");

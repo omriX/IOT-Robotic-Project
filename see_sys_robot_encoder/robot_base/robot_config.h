@@ -54,3 +54,9 @@ constexpr int SPEED_DEADBAND = 40;
 // ==== Control loop timing ====
 constexpr unsigned long CONTROL_PERIOD_MS = 50;
 constexpr unsigned long CMD_VEL_TIMEOUT_MS = 500;
+
+// ==== Parameter server defaults (rclc_parameter_server) ====
+constexpr int DEFAULT_LOG_LEVEL = 20;
+constexpr int DEFAULT_ODOM_RATE_HZ = 20;
+constexpr double DEFAULT_MAX_LINEAR_MPS = 0.2;
+constexpr double DEFAULT_MAX_ANGULAR_RPS = 1.5;
