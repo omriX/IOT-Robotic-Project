@@ -18,6 +18,8 @@ services:
     command: ["udp4", "--port", "8888"]
 
   ros_tools:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     stdin_open: true
     tty: true

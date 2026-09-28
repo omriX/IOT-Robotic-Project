@@ -5,9 +5,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-teleop-twist-keyboard \
     ros-humble-robot-state-publisher \
     ros-humble-xacro \
+    python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
-# TODO: copy ros2_ws/src/robot_base_driver into /ros2_ws/src and colcon build it here, once that package exists.
-
 WORKDIR /ros2_ws
+COPY ros2_ws/src src
+RUN . /opt/ros/humble/setup.sh && colcon build --symlink-install
+
+RUN echo 'source /opt/ros/humble/setup.bash' >> /etc/bash.bashrc && \
+    echo 'source /ros2_ws/install/setup.bash' >> /etc/bash.bashrc
+
 CMD ["bash"]
