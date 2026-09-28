@@ -38,8 +38,6 @@
 #include "selftest.h"
 #include "ros_log.h"
 
-#define DEBUG_PID_LOOP 1
-
 constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
 
 #define RCCHECK(fn)                                                                            \
@@ -100,9 +98,6 @@ struct SharedState
   double max_linear_mps = DEFAULT_MAX_LINEAR_MPS;
   double max_angular_rps = DEFAULT_MAX_ANGULAR_RPS;
   unsigned long cmd_vel_timeout_ms = CMD_VEL_TIMEOUT_MS;
-#if DEBUG_PID_LOOP
-  double pid_input_a = 0, pid_output_a = 0, pid_input_b = 0, pid_output_b = 0;
-#endif
 };
 SharedState shared;
 
@@ -149,6 +144,7 @@ void controlTask(void *pvParameters)
   long prevCountA = 0;
   long prevCountB = 0;
   Pose2D pose;
+  bool wasStopped = false;
 
   for (;;)
   {
@@ -162,11 +158,23 @@ void controlTask(void *pvParameters)
     double ticksPerM = ticksPerMeter(COUNTS_PER_WHEEL_REV, shared.wheel_radius_m);
     portEXIT_CRITICAL(&sharedStateMux);
 
-    if (faulted || millis() - lastCmdMs > cmdVelTimeoutMs)
+    bool isStopped = faulted || millis() - lastCmdMs > cmdVelTimeoutMs;
+    if (isStopped)
     {
       targetLeft = 0;
       targetRight = 0;
+      // ArduPID's integral term freezes at whatever it last reached once
+      // error hits 0 -- it doesn't decay on its own -- so a controller
+      // that was lagging the setpoint (integral wound up to compensate)
+      // leaves that residual sitting right at the deadband edge forever
+      // unless explicitly reset here, on the stop transition.
+      if (!wasStopped)
+      {
+        controllerA.reset();
+        controllerB.reset();
+      }
     }
+    wasStopped = isStopped;
 
     if (MOTOR_A_IS_LEFT)
     {
@@ -204,12 +212,6 @@ void controlTask(void *pvParameters)
     shared.theta = pose.theta;
     shared.linear_v = odom.linear_v;
     shared.angular_w = odom.angular_w;
-#if DEBUG_PID_LOOP
-    shared.pid_input_a = inputA;
-    shared.pid_output_a = outputA;
-    shared.pid_input_b = inputB;
-    shared.pid_output_b = outputB;
-#endif
     portEXIT_CRITICAL(&sharedStateMux);
 
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -678,18 +680,6 @@ void loop()
         portEXIT_CRITICAL(&sharedStateMux);
         rcl_publish(&status_publisher, &status_msg, NULL);
       });
-#if DEBUG_PID_LOOP
-      EXECUTE_EVERY_N_MS(100, {
-        portENTER_CRITICAL(&sharedStateMux);
-        double pidInA = shared.pid_input_a;
-        double pidOutA = shared.pid_output_a;
-        double pidInB = shared.pid_input_b;
-        double pidOutB = shared.pid_output_b;
-        portEXIT_CRITICAL(&sharedStateMux);
-        dprintln("pid A in:" + String(pidInA) + " out:" + String(pidOutA) +
-                 " | B in:" + String(pidInB) + " out:" + String(pidOutB));
-      });
-#endif
     }
     break;
   case AGENT_DISCONNECTED:
@@ -733,7 +723,9 @@ void loop()
     log_state();
 
     portENTER_CRITICAL(&sharedStateMux);
-    double x = shared.x, y = shared.y, theta = shared.theta;
+    double x = shared.x;
+    double y = shared.y;
+    double theta = shared.theta;
     portEXIT_CRITICAL(&sharedStateMux);
     dprintln("odom x:" + String(x) + " y:" + String(y) + " theta:" + String(theta));
   }
