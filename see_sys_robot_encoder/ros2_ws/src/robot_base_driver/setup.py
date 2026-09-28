@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'driver_node = robot_base_driver.driver_node:main',
+            'auto_calibrate = robot_base_driver.auto_calibrate:main',
         ],
     },
 )
