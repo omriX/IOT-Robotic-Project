@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<!--
+  robot_base.urdf.xacro
+
+  Deliberately simple: a box body, two cylinder wheels, one caster sphere.
+  Exists to move in RViz off the driver node's odom->base_link TF, and as
+  the seed for a future Gazebo model. All joints are fixed, so the robot
+  moves as a whole via TF rather than via individual wheel rotation, and
+  no joint_state_publisher is needed.
+
+  wheel_radius/wheel_separation mirror robot_config.h's WHEEL_RADIUS_M/
+  WHEEL_BASE_M defaults; both are now live ROS parameters on the ESP32
+  (rclc_parameter_server), so keep these in sync by hand if recalibrated.
+-->
+<robot name="robot_base" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="wheel_radius" value="0.022" />
+  <xacro:property name="wheel_width" value="0.014" />
+  <xacro:property name="wheel_separation" value="0.116" />
+
+  <xacro:property name="body_length" value="0.14" />
+  <xacro:property name="body_width" value="0.10" />
+  <xacro:property name="body_height" value="0.04" />
+  <xacro:property name="body_z" value="${wheel_radius}" />
+
+  <xacro:property name="caster_radius" value="0.012" />
+  <xacro:property name="caster_x" value="${-body_length/2 + caster_radius}" />
+  <xacro:property name="caster_z" value="${wheel_radius - caster_radius}" />
+
+  <material name="chassis_grey">
+    <color rgba="0.5 0.5 0.5 1.0" />
+  </material>
+  <material name="wheel_black">
+    <color rgba="0.1 0.1 0.1 1.0" />
+  </material>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${body_z}" rpy="0 0 0" />
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}" />
+      </geometry>
+      <material name="chassis_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${body_z}" rpy="0 0 0" />
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}" />
+      </geometry>
+    </collision>
+  </link>
+
+  <xacro:macro name="wheel" params="prefix y_sign">
+    <link name="${prefix}_wheel">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0" />
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}" />
+        </geometry>
+        <material name="wheel_black" />
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0" />
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}" />
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}_wheel_joint" type="fixed">
+      <parent link="base_link" />
+      <child link="${prefix}_wheel" />
+      <origin xyz="0 ${y_sign * wheel_separation / 2} ${wheel_radius}" rpy="0 0 0" />
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel prefix="left" y_sign="1" />
+  <xacro:wheel prefix="right" y_sign="-1" />
+
+  <link name="caster">
+    <visual>
+      <geometry>
+        <sphere radius="${caster_radius}" />
+      </geometry>
+      <material name="wheel_black" />
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="${caster_radius}" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="caster_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="caster" />
+    <origin xyz="${caster_x} 0 ${caster_z}" rpy="0 0 0" />
+  </joint>
+
+</robot>
