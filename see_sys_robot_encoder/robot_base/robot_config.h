@@ -7,12 +7,12 @@
 // Used for WebSerial (the debug channel once micro-ROS owns the Serial/USB UART)
 // and the micro-ROS transport itself.
 // TODO: move to NVS + serial config console instead of hardcoding credentials here.
-constexpr char WIFI_SSID[] = "Apt1920";
-constexpr char WIFI_PASSWORD[] = "DiraSisma1920";
+constexpr char WIFI_SSID[] = "CIS_ROBOTS";
+constexpr char WIFI_PASSWORD[] = "CPOR2D2BB83";
 
 // micro-ROS agent (docker/docker-compose.yml, agent-udp) -- the PC's LAN IP.
 // TODO: re-check this IP if it changes (DHCP).
-constexpr char MICROROS_AGENT_IP[] = "192.168.1.221";
+constexpr char MICROROS_AGENT_IP[] = "10.240.10.103";
 constexpr uint32_t MICROROS_AGENT_PORT = 8888;
 
 // ==== Motor driver pins -- unchanged from POC code ====
