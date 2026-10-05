@@ -98,6 +98,10 @@ struct SharedState
   double max_linear_mps = DEFAULT_MAX_LINEAR_MPS;
   double max_angular_rps = DEFAULT_MAX_ANGULAR_RPS;
   unsigned long cmd_vel_timeout_ms = CMD_VEL_TIMEOUT_MS;
+#if DEBUG_PID_LOOP
+  double pid_setpoint_a = 0, pid_input_a = 0, pid_output_a = 0;
+  double pid_setpoint_b = 0, pid_input_b = 0, pid_output_b = 0;
+#endif
 };
 SharedState shared;
 
@@ -144,7 +148,6 @@ void controlTask(void *pvParameters)
   long prevCountA = 0;
   long prevCountB = 0;
   Pose2D pose;
-  bool wasStopped = false;
 
   for (;;)
   {
@@ -163,18 +166,7 @@ void controlTask(void *pvParameters)
     {
       targetLeft = 0;
       targetRight = 0;
-      // ArduPID's integral term freezes at whatever it last reached once
-      // error hits 0 -- it doesn't decay on its own -- so a controller
-      // that was lagging the setpoint (integral wound up to compensate)
-      // leaves that residual sitting right at the deadband edge forever
-      // unless explicitly reset here, on the stop transition.
-      if (!wasStopped)
-      {
-        controllerA.reset();
-        controllerB.reset();
-      }
     }
-    wasStopped = isStopped;
 
     if (MOTOR_A_IS_LEFT)
     {
@@ -190,12 +182,27 @@ void controlTask(void *pvParameters)
     long currCountA = (long)encoderA.getCount();
     inputA = (double)(currCountA - prevCountA);
     prevCountA = currCountA;
-    controllerA.compute();
 
     long currCountB = (long)encoderB.getCount();
     inputB = (double)(currCountB - prevCountB);
     prevCountB = currCountB;
-    controllerB.compute();
+
+    // While stopped, hold the controllers in reset: otherwise the integral
+    // winds up while the wheels coast down and then holds the motors at a
+    // nonzero PWM at standstill. Resetting every cycle also keeps ArduPID's
+    // timer aligned with this loop for the first compute after resuming.
+    if (isStopped)
+    {
+      controllerA.reset();
+      controllerB.reset();
+      outputA = 0;
+      outputB = 0;
+    }
+    else
+    {
+      controllerA.compute();
+      controllerB.compute();
+    }
 
     if (freewheelMode)
       motors(0, 0);
@@ -212,6 +219,14 @@ void controlTask(void *pvParameters)
     shared.theta = pose.theta;
     shared.linear_v = odom.linear_v;
     shared.angular_w = odom.angular_w;
+#if DEBUG_PID_LOOP
+    shared.pid_setpoint_a = setpointA;
+    shared.pid_input_a = inputA;
+    shared.pid_output_a = outputA;
+    shared.pid_setpoint_b = setpointB;
+    shared.pid_input_b = inputB;
+    shared.pid_output_b = outputB;
+#endif
     portEXIT_CRITICAL(&sharedStateMux);
 
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -571,6 +586,21 @@ void log_state()
   dprintln(String("state:") + names[state]);
 }
 
+#if DEBUG_PID_LOOP
+void log_pid_debug()
+{
+  portENTER_CRITICAL(&sharedStateMux);
+  double spA = shared.pid_setpoint_a, inA = shared.pid_input_a, outA = shared.pid_output_a;
+  double spB = shared.pid_setpoint_b, inB = shared.pid_input_b, outB = shared.pid_output_b;
+  portEXIT_CRITICAL(&sharedStateMux);
+  if (spA == 0 && spB == 0 && outA == 0 && outB == 0)
+    return;
+  dprintln(String("pid ") + (MOTOR_A_IS_LEFT ? "A=L" : "A=R") +
+           " A sp:" + String(spA) + " in:" + String(inA) + " out:" + String(outA) +
+           " | B sp:" + String(spB) + " in:" + String(inB) + " out:" + String(outB));
+}
+#endif
+
 void setup()
 {
   Serial.begin(115200);
@@ -596,6 +626,10 @@ void setup()
 
   controllerA.begin(&inputA, &outputA, &setpointA, PID_P, PID_I, PID_D);
   controllerB.begin(&inputB, &outputB, &setpointB, PID_P, PID_I, PID_D);
+  // With the default sample time of 0, ArduPID's timer never advances, so its
+  // dt becomes "time since last reset" and the effective I/D gains drift.
+  controllerA.setSampleTime(CONTROL_PERIOD_MS);
+  controllerB.setSampleTime(CONTROL_PERIOD_MS);
   controllerA.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
   controllerB.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
   controllerA.start();
@@ -680,6 +714,9 @@ void loop()
         portEXIT_CRITICAL(&sharedStateMux);
         rcl_publish(&status_publisher, &status_msg, NULL);
       });
+#if DEBUG_PID_LOOP
+      EXECUTE_EVERY_N_MS(100, log_pid_debug());
+#endif
     }
     break;
   case AGENT_DISCONNECTED:

@@ -12,7 +12,7 @@ constexpr char WIFI_PASSWORD[] = "CPOR2D2BB83";
 
 // micro-ROS agent (docker/docker-compose.yml, agent-udp) -- the PC's LAN IP.
 // TODO: re-check this IP if it changes (DHCP).
-constexpr char MICROROS_AGENT_IP[] = "10.240.10.103";
+constexpr char MICROROS_AGENT_IP[] = "10.240.10.255";
 constexpr uint32_t MICROROS_AGENT_PORT = 8888;
 
 // ==== Motor driver pins -- unchanged from POC code ====
@@ -35,11 +35,15 @@ constexpr float LOW_BATTERY_THRESHOLD_V = 6.6;
 constexpr float ADC_MAX_VALUE = 4095.0;
 constexpr float ADC_LOGIC_LEVEL_V = 3.3;
 
-// ==== PID gains -- unchanged from POC code ====
+// ==== PID gains ====
+// ArduPID scales I by the sample period in seconds, so I=2.0 adds 0.1*error per 50ms cycle.
+// D is off: the per-interval tick count is too noisy to differentiate.
 constexpr double PID_P = 0.4;
-constexpr double PID_I = 0.001;
-constexpr double PID_D = 0.05;
-constexpr int PID_OUTPUT_LIMIT = 120;
+constexpr double PID_I = 2.0;
+constexpr double PID_D = 0.0;
+constexpr int PID_OUTPUT_LIMIT = 230;
+// Logs per-wheel setpoint / measured ticks / PWM every 100ms over WebSerial.
+#define DEBUG_PID_LOOP 1
 
 // ==== Calibration ====
 constexpr double COUNTS_PER_WHEEL_REV = 4216.0;
@@ -49,7 +53,7 @@ constexpr bool MOTOR_A_IS_LEFT = false;
 constexpr double LEFT_DIR_SIGN = -1.0;
 constexpr double RIGHT_DIR_SIGN = -1.0;
 constexpr double MAX_TICKS_PER_INTERVAL = 350.0;
-constexpr int SPEED_DEADBAND = 40;
+constexpr int SPEED_DEADBAND = 10;
 
 // ==== Control loop timing ====
 constexpr unsigned long CONTROL_PERIOD_MS = 50;
