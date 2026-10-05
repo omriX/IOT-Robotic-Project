@@ -1,0 +1,9 @@
+docker compose up agent-udp
+docker compose run --rm ros_tools
+
+ros2 topic echo /battery_state
+
+ros2 topic pub --rate 10 --times 50 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.1}}'
+
+ros2 param set /robot_base cmd_vel_timeout_ms 1500
+
