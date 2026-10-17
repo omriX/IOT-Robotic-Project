@@ -1,7 +1,7 @@
 # micro-ROS agent (bridges the ESP32 <-> the ROS 2 graph).
 # Usage:
 #   docker compose up agent-serial   # Serial
-#   docker compose up agent-udp      # Wi-Fi
+#   ROBOT_BIND_IP=<robot-facing IPv4> docker compose up agent-udp  # Wi-Fi
 
 services:
   agent-serial:
@@ -14,7 +14,8 @@ services:
   agent-udp:
     image: microros/micro-ros-agent:humble
     ports:
-      - "8888:8888/udp"
+      # Loopback is the safe default; set ROBOT_BIND_IP for a physical Wi-Fi robot.
+      - "${ROBOT_BIND_IP:-127.0.0.1}:8888:8888/udp"
     command: ["udp4", "--port", "8888"]
 
   ros_tools:

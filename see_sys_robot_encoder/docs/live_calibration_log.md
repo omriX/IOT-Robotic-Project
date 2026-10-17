@@ -2,7 +2,7 @@
 
 Refines the two live-tunable geometry parameters (`rclc_parameter_server`, no reflash) against the
 integrated `/odom` output, rather than raw encoder ticks (that was `calibration_log.md`, done earlier
-and pre-ROS). Terminal 1: `docker compose up agent-udp`. Terminal 2: `docker compose run --rm ros_tools
+and pre-ROS). Terminal 1: start `agent-udp` with `ROBOT_BIND_IP` set as below. Terminal 2: `docker compose run --rm ros_tools
 bash`, confirm the board shows `AGENT_CONNECTED` on serial before starting.
 
 ## Running `auto_calibrate` (Parts 1 and 2)
@@ -10,10 +10,13 @@ bash`, confirm the board shows `AGENT_CONNECTED` on serial before starting.
 Automates the "command it, then read odom" half of Parts 1 and 2 below — you still measure the actual
 distance/angle with a tape and confirm before it applies anything. Same two terminals as everywhere else:
 
-Terminal 1:
+Terminal 1 (on macOS, use the Mac's robot-facing Wi-Fi IPv4 address):
 ```
+export ROBOT_BIND_IP="$(ipconfig getifaddr en0)"
 docker compose -f docker/docker-compose.yml up agent-udp
 ```
+On Ubuntu with the Linux Compose override, the agent uses host networking
+instead; see `ubuntu_lab_test.md`.
 Confirm `AGENT_CONNECTED` on serial first.
 
 Terminal 2:

@@ -54,7 +54,20 @@ class RobotBaseDriver(Node):
             severity = LoggingSeverity(msg.level)
         except ValueError:
             severity = LoggingSeverity.INFO
-        self.get_logger().log(f'[robot_base] {msg.msg}', severity)
+        # rclpy Humble binds each source call site to one severity. Calling
+        # logger.log() here with mixed ESP32 levels crashes on the next level.
+        message = f'[robot_base] {msg.msg}'
+        logger = self.get_logger()
+        if severity == LoggingSeverity.DEBUG:
+            logger.debug(message)
+        elif severity == LoggingSeverity.WARN:
+            logger.warn(message)
+        elif severity == LoggingSeverity.ERROR:
+            logger.error(message)
+        elif severity == LoggingSeverity.FATAL:
+            logger.fatal(message)
+        else:
+            logger.info(message)
 
     def on_odom(self, msg):
         self.last_odom_time = time.monotonic()

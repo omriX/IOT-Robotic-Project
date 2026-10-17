@@ -1,0 +1,14 @@
+# Open RViz on a Mac through a browser, avoiding XQuartz's OpenGL limitations.
+services:
+  agent-udp:
+    # Bind only to the Mac's robot-facing Wi-Fi IPv4 address, never all interfaces.
+    ports: !override
+      - "${ROBOT_BIND_IP:?Set ROBOT_BIND_IP to this Mac's Wi-Fi IPv4 address}:8888:8888/udp"
+
+  ros_view:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["bash", "/usr/local/bin/start_rviz_web.sh"]
+    ports:
+      - "127.0.0.1:6080:6080"

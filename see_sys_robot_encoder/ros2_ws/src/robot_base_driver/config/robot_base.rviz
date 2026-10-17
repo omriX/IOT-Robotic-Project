@@ -1,6 +1,8 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
 Visualization Manager:
   Class: ""
   Displays:
@@ -8,6 +10,8 @@ Visualization Manager:
       Name: Grid
       Enabled: true
       Plane: XY
+      Cell Size: 0.25
+      Plane Cell Count: 20
       Value: true
     - Class: rviz_default_plugins/RobotModel
       Name: RobotModel
@@ -17,17 +21,26 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/TF
       Name: TF
-      Enabled: true
-      Show Names: true
-      Value: true
+      Enabled: false
+      Show Names: false
+      Value: false
     - Class: rviz_default_plugins/Odometry
       Name: Odometry Trail
       Enabled: true
       Topic:
         Value: /odom
       Keep: 200
+      Position Tolerance: 0.01
+      Angle Tolerance: 0.1
+      Covariance:
+        Value: false
       Shape:
-        Value: Axes
+        Color: 255; 210; 0
+        Shaft Length: 0.05
+        Shaft Radius: 0.006
+        Head Length: 0.02
+        Head Radius: 0.015
+        Value: Arrow
       Value: true
   Enabled: true
   Global Options:
@@ -40,13 +53,13 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz_default_plugins/Orbit
+      Class: rviz_default_plugins/TopDownOrtho
       Name: Current View
-      Distance: 1.5
-      Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
+      Target Frame: <Fixed Frame>
+      Scale: 260
+      X: 0
+      Y: 0
+      Value: TopDownOrtho (rviz_default_plugins)
 Window Geometry:
   Height: 800
   Width: 1200
