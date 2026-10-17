@@ -34,9 +34,9 @@ static bool near(double a, double b, double eps = 1e-6)
   return std::fabs(a - b) < eps;
 }
 
-// Shared constants, matching docs/calibration_log.md's final values.
+// Shared constants, matching robot_config.h's calibrated defaults.
 constexpr double COUNTS_PER_WHEEL_REV = 4216.0;
-constexpr double WHEEL_RADIUS_M = 0.0220;
+constexpr double WHEEL_RADIUS_M = 0.021961;
 constexpr double WHEEL_BASE_M = 0.116;
 constexpr double CONTROL_PERIOD_S = 0.050;
 constexpr double MAX_TICKS = 350.0;
@@ -137,6 +137,42 @@ void test_yaw_to_quaternion()
   CHECK("yaw pi -> qz=1, qw=0", near(qpi.z, 1.0, 1e-6) && near(qpi.w, 0.0, 1e-6));
 }
 
+void test_straight_correction()
+{
+  StraightDriveCorrection control;
+  auto step = [&](double left, double right, double dl, double dr) {
+    return control.update(left, right, dl, dr, 0.05, 2.0, 0.20, 350.0);
+  };
+  step(100, 100, 30, -30);
+  CHECK("straight correction: excludes motion before segment", near(control.travel_error_ticks, 0));
+  auto sp = step(100, 100, 66, 55);
+  CHECK("startup right lag: slow left and speed right", sp.left_ticks_per_interval < 100 && sp.right_ticks_per_interval > 100);
+  CHECK("straight correction: preserves average speed", near(sp.left_ticks_per_interval + sp.right_ticks_per_interval, 200));
+  step(100, 100, 100, 100);
+  CHECK("matched speeds: retains correction for accumulated error", near(control.travel_error_ticks, 11) && control.trim_ticks > 0);
+  for (int i = 0; i < 100; ++i)
+    sp = step(100, 100, sp.left_ticks_per_interval, sp.right_ticks_per_interval);
+  CHECK("ideal wheel response: recovers startup heading", std::fabs(control.travel_error_ticks) < 0.001);
+
+  sp = step(100, 100, 10000, 0);
+  CHECK("large disturbance: correction limited to 20 percent", near(sp.left_ticks_per_interval, 80) && near(sp.right_ticks_per_interval, 120));
+  sp = step(340, 340, 340, 340);
+  CHECK("straight correction: respects maximum wheel speed", near(sp.right_ticks_per_interval, 350));
+  sp = step(60, 140, 60, 140);
+  CHECK("turn command: unchanged and clears heading reference", near(sp.left_ticks_per_interval, 60) && near(sp.right_ticks_per_interval, 140) && near(control.travel_error_ticks, 0));
+
+  step(-100, -100, 0, 0);
+  sp = step(-100, -100, -55, -66);
+  CHECK("reverse: corrects measured heading with proper signs", sp.left_ticks_per_interval < -100 && sp.right_ticks_per_interval > -100);
+  sp = step(100, 100, -55, -66);
+  CHECK("direction reversal: clears previous correction", near(sp.left_ticks_per_interval, 100) && near(control.travel_error_ticks, 0));
+  step(100, 100, 80, 60);
+  sp = step(0, 0, 5, 0);
+  CHECK("stop: zero targets and cleared correction", near(sp.left_ticks_per_interval, 0) && near(sp.right_ticks_per_interval, 0) && near(control.travel_error_ticks, 0));
+  sp = step(100, 100, 5, 0);
+  CHECK("restart: captures new heading", near(sp.left_ticks_per_interval, 100) && near(control.travel_error_ticks, 0));
+}
+
 int main()
 {
   test_straight();
@@ -148,6 +184,7 @@ int main()
   test_angle_wrap();
   test_odometry_square_loop();
   test_yaw_to_quaternion();
+  test_straight_correction();
 
   std::printf("\n%d/%d tests passed\n", tests_run - tests_failed, tests_run);
   return tests_failed == 0 ? 0 : 1;

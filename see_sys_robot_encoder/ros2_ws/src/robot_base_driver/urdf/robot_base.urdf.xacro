@@ -14,7 +14,7 @@
 -->
 <robot name="robot_base" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:property name="wheel_radius" value="0.022" />
+  <xacro:property name="wheel_radius" value="0.021961" />
   <xacro:property name="wheel_width" value="0.014" />
   <xacro:property name="wheel_separation" value="0.116" />
 

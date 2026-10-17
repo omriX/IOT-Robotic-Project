@@ -73,8 +73,8 @@ inline WheelVelocities wheelLinearVelocities(double linear_v, double angular_w, 
 }
 
 // cmd_vel (v, w) -> per-wheel raw PID setpoints (signed ticks/interval).
-// This is the ONLY place cmd_vel becomes a wheel setpoint and the ONLY place
-// saturation happens.
+// Converts cmd_vel into base wheel targets. Straight-drive correction can
+// subsequently adjust them within the same speed limit.
 inline WheelSetpoints cmdVelToWheelSetpoints(
     double linear_v, double angular_w,
     double wheel_base_m, double ticks_per_meter, double control_period_s,
@@ -96,6 +96,58 @@ inline WheelSetpoints cmdVelToWheelSetpoints(
 
   return {left, right};
 }
+
+// Keeps the encoder heading at the start of a straight segment. All inputs
+// here are forward-positive ticks, independent of motor wiring. Positive
+// travel_error_ticks means the left wheel has travelled farther: slow it
+// slightly and speed up the right until the accumulated difference recovers.
+class StraightDriveCorrection
+{
+public:
+  double travel_error_ticks = 0;
+  double trim_ticks = 0;
+
+  WheelSetpoints update(double left_target, double right_target,
+                        double left_delta, double right_delta,
+                        double period_s, double gain_per_s,
+                        double max_trim_fraction, double max_ticks)
+  {
+    const bool straight = std::fabs(left_target) > 1e-6 &&
+                          std::fabs(left_target - right_target) < 1e-6;
+    const int direction = left_target > 0 ? 1 : -1;
+    if (!straight)
+    {
+      reset();
+      return {left_target, right_target};
+    }
+    if (direction_ != direction)
+    {
+      // This sample belongs to the interval before this command took effect.
+      reset();
+      direction_ = direction;
+    }
+    else
+    {
+      travel_error_ticks += left_delta - right_delta;
+    }
+
+    const double limit = std::fmax(0.0, std::fmin(
+        max_trim_fraction * std::fabs(left_target),
+        max_ticks - std::fabs(left_target)));
+    trim_ticks = std::fmax(-limit, std::fmin(limit,
+        0.5 * gain_per_s * period_s * travel_error_ticks));
+    return {left_target - trim_ticks, right_target + trim_ticks};
+  }
+
+private:
+  int direction_ = 0;
+  void reset()
+  {
+    direction_ = 0;
+    travel_error_ticks = 0;
+    trim_ticks = 0;
+  }
+};
 
 // Encoder deltas (already in the PID's forward-positive sign convention) ->
 // odometry, integrated in place into `pose`. Returns the instantaneous

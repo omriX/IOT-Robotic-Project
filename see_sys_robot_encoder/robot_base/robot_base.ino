@@ -101,6 +101,7 @@ struct SharedState
 #if DEBUG_PID_LOOP
   double pid_setpoint_a = 0, pid_input_a = 0, pid_output_a = 0;
   double pid_setpoint_b = 0, pid_input_b = 0, pid_output_b = 0;
+  double straight_error_ticks = 0, straight_trim_ticks = 0;
 #endif
 };
 SharedState shared;
@@ -148,6 +149,7 @@ void controlTask(void *pvParameters)
   long prevCountA = 0;
   long prevCountB = 0;
   Pose2D pose;
+  StraightDriveCorrection straightCorrection;
 
   for (;;)
   {
@@ -161,22 +163,12 @@ void controlTask(void *pvParameters)
     double ticksPerM = ticksPerMeter(COUNTS_PER_WHEEL_REV, shared.wheel_radius_m);
     portEXIT_CRITICAL(&sharedStateMux);
 
-    bool isStopped = faulted || millis() - lastCmdMs > cmdVelTimeoutMs;
+    bool isStopped = faulted || freewheelMode || millis() - lastCmdMs > cmdVelTimeoutMs ||
+                     (targetLeft == 0 && targetRight == 0);
     if (isStopped)
     {
       targetLeft = 0;
       targetRight = 0;
-    }
-
-    if (MOTOR_A_IS_LEFT)
-    {
-      setpointA = targetLeft;
-      setpointB = targetRight;
-    }
-    else
-    {
-      setpointA = targetRight;
-      setpointB = targetLeft;
     }
 
     long currCountA = (long)encoderA.getCount();
@@ -186,6 +178,18 @@ void controlTask(void *pvParameters)
     long currCountB = (long)encoderB.getCount();
     inputB = (double)(currCountB - prevCountB);
     prevCountB = currCountB;
+
+    double deltaLeftTicks = (MOTOR_A_IS_LEFT ? inputA : inputB) * LEFT_DIR_SIGN;
+    double deltaRightTicks = (MOTOR_A_IS_LEFT ? inputB : inputA) * RIGHT_DIR_SIGN;
+    WheelSetpoints corrected = straightCorrection.update(
+        targetLeft * LEFT_DIR_SIGN, targetRight * RIGHT_DIR_SIGN,
+        deltaLeftTicks, deltaRightTicks, CONTROL_PERIOD_S,
+        STRAIGHT_CORRECTION_GAIN_PER_S, STRAIGHT_MAX_TRIM_FRACTION,
+        MAX_TICKS_PER_INTERVAL);
+    targetLeft = corrected.left_ticks_per_interval * LEFT_DIR_SIGN;
+    targetRight = corrected.right_ticks_per_interval * RIGHT_DIR_SIGN;
+    setpointA = MOTOR_A_IS_LEFT ? targetLeft : targetRight;
+    setpointB = MOTOR_A_IS_LEFT ? targetRight : targetLeft;
 
     // While stopped, hold the controllers in reset: otherwise the integral
     // winds up while the wheels coast down and then holds the motors at a
@@ -209,8 +213,6 @@ void controlTask(void *pvParameters)
     else
       motors((int)outputA, (int)outputB);
 
-    double deltaLeftTicks = (MOTOR_A_IS_LEFT ? inputA : inputB) * LEFT_DIR_SIGN;
-    double deltaRightTicks = (MOTOR_A_IS_LEFT ? inputB : inputA) * RIGHT_DIR_SIGN;
     OdometryDelta odom = integrateOdometry(pose, deltaLeftTicks, deltaRightTicks, ticksPerM, wheelBaseM, CONTROL_PERIOD_S);
 
     portENTER_CRITICAL(&sharedStateMux);
@@ -226,6 +228,8 @@ void controlTask(void *pvParameters)
     shared.pid_setpoint_b = setpointB;
     shared.pid_input_b = inputB;
     shared.pid_output_b = outputB;
+    shared.straight_error_ticks = straightCorrection.travel_error_ticks;
+    shared.straight_trim_ticks = straightCorrection.trim_ticks;
 #endif
     portEXIT_CRITICAL(&sharedStateMux);
 
@@ -592,12 +596,14 @@ void log_pid_debug()
   portENTER_CRITICAL(&sharedStateMux);
   double spA = shared.pid_setpoint_a, inA = shared.pid_input_a, outA = shared.pid_output_a;
   double spB = shared.pid_setpoint_b, inB = shared.pid_input_b, outB = shared.pid_output_b;
+  double straightError = shared.straight_error_ticks, straightTrim = shared.straight_trim_ticks;
   portEXIT_CRITICAL(&sharedStateMux);
   if (spA == 0 && spB == 0 && outA == 0 && outB == 0)
     return;
   dprintln(String("pid ") + (MOTOR_A_IS_LEFT ? "A=L" : "A=R") +
            " A sp:" + String(spA) + " in:" + String(inA) + " out:" + String(outA) +
-           " | B sp:" + String(spB) + " in:" + String(inB) + " out:" + String(outB));
+           " | B sp:" + String(spB) + " in:" + String(inB) + " out:" + String(outB) +
+           " | straight err_ticks:" + String(straightError) + " trim:" + String(straightTrim));
 }
 #endif
 

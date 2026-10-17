@@ -72,7 +72,14 @@ where `ticks` = average of |count_A| and |count_B|.
 | 2 | 0.343 | 10542 | 10491 | 0.5% | 0.0219 |
 | 3 | 0.353 | 10789 | 10726 | 0.6% | 0.0220 |
 
-- **WHEEL_RADIUS_M (final): 0.0220 m** 
+- **WHEEL_RADIUS_M (September 2026 result): 0.0220 m**
+
+**17 October 2026 follow-up, closed-loop floor drive:** With the radius set to
+0.022000 m, `/odom` reported 1.0419 m and a tape measure gave 1.04 m. The
+calibration tool proposed 0.021961 m. That value was applied with
+`ros2 param set /robot_base wheel_radius_m 0.021961` and confirmed by reading
+the parameter back. This is the current effective radius used by the robot.
+It is stored in the ESP32's NVS and in `robot_config.h` as the default.
 
 ---
 
@@ -140,7 +147,7 @@ steps, logging `pwm:<val> dtick:<val>` at each step over Serial/WebSerial.
 |---|---|
 | `COUNTS_PER_WHEEL_REV` | 4216 |
 | `WHEEL_BASE_M` | 0.116 |
-| `WHEEL_RADIUS_M` | 0.0220 |
+| `WHEEL_RADIUS_M` | 0.021961 (October 2026 update) |
 | `MOTOR_A_IS_LEFT` | false |
 | `LEFT_DIR_SIGN` | -1.0 |
 | `RIGHT_DIR_SIGN` | -1.0 |

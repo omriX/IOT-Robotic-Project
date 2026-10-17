@@ -7,12 +7,14 @@
 // Used for WebSerial (the debug channel once micro-ROS owns the Serial/USB UART)
 // and the micro-ROS transport itself.
 // TODO: move to NVS + serial config console instead of hardcoding credentials here.
-constexpr char WIFI_SSID[] = "CIS_ROBOTS";
-constexpr char WIFI_PASSWORD[] = "CPOR2D2BB83";
+#if __has_include("network_local.h")
+#include "network_local.h"
+#else
+#error "Copy network_local.example.h to network_local.h and fill in your network settings."
+#endif
 
 // micro-ROS agent (docker/docker-compose.yml, agent-udp) -- the PC's LAN IP.
 // TODO: re-check this IP if it changes (DHCP).
-constexpr char MICROROS_AGENT_IP[] = "10.240.10.255";
 constexpr uint32_t MICROROS_AGENT_PORT = 8888;
 
 // ==== Motor driver pins -- unchanged from POC code ====
@@ -41,6 +43,10 @@ constexpr float ADC_LOGIC_LEVEL_V = 3.3;
 constexpr double PID_P = 0.4;
 constexpr double PID_I = 2.0;
 constexpr double PID_D = 0.0;
+// Outer encoder-heading loop, active only for straight motion. Its trim
+// changes each wheel target by at most 20%, also respecting the speed limit.
+constexpr double STRAIGHT_CORRECTION_GAIN_PER_S = 2.0;
+constexpr double STRAIGHT_MAX_TRIM_FRACTION = 0.20;
 constexpr int PID_OUTPUT_LIMIT = 230;
 // Logs per-wheel setpoint / measured ticks / PWM every 100ms over WebSerial.
 #define DEBUG_PID_LOOP 1
@@ -48,7 +54,7 @@ constexpr int PID_OUTPUT_LIMIT = 230;
 // ==== Calibration ====
 constexpr double COUNTS_PER_WHEEL_REV = 4216.0;
 constexpr double WHEEL_BASE_M = 0.116;
-constexpr double WHEEL_RADIUS_M = 0.0220;
+constexpr double WHEEL_RADIUS_M = 0.021961;
 constexpr bool MOTOR_A_IS_LEFT = false;
 constexpr double LEFT_DIR_SIGN = -1.0;
 constexpr double RIGHT_DIR_SIGN = -1.0;

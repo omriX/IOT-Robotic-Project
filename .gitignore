@@ -1,1 +1,3 @@
 ESP32/SECRETS.h
+.pio/
+see_sys_robot_encoder/robot_base/network_local.h

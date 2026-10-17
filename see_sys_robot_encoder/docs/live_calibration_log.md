@@ -93,10 +93,10 @@ want to do it manually or the script doesn't behave as expected.
 
 | Trial | actual (m) | reported (m) | current wheel_radius_m | new wheel_radius_m |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
+| 1 (17 October 2026) | 1.04 | 1.0419 | 0.022000 | 0.021961 |
 | 2 (confirm) |  |  |  |  |
 
-- **WHEEL_RADIUS_M (final, live value):**
+- **WHEEL_RADIUS_M (final, live value):** 0.021961 m; confirmed by ROS parameter readback. Also saved in the firmware default.
 
 ---
 
