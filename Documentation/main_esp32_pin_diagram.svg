@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1080" viewBox="0 0 1600 1080">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#2563eb"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#172b4d}.title{font-size:30px;font-weight:700}.sub{font-size:17px;fill:#52647a}.head{font-size:21px;font-weight:700}.label{font-size:18px}.pin{font-size:19px;font-weight:700;fill:white}.note{font-size:17px;fill:#52647a}.wire{fill:none;stroke:#2563eb;stroke-width:2.5;marker-end:url(#a)}</style>
+<rect width="1600" height="1080" fill="#f8fafc"/>
+<text x="55" y="55" class="title">Main ESP32 — carrier-board G / V / S connections</text>
+<text x="55" y="88" class="sub">Signal mapping from firmware • G / V / S header grouping observed in the supplied board photo</text>
+<rect x="425" y="155" width="750" height="735" rx="24" fill="#e8eef5" stroke="#cbd5e1" stroke-width="2"/>
+<text x="800" y="187" text-anchor="middle" class="head">ESP32 carrier / expansion board</text>
+<rect x="625" y="215" width="350" height="635" rx="20" fill="#172b4d"/>
+<text x="800" y="259" text-anchor="middle" style="fill:white;font-size:30px;font-weight:700">ESP32</text>
+<text x="800" y="288" text-anchor="middle" style="fill:#bdcce0;font-size:17px">GPIO signal pins</text>
+<text x="800" y="818" text-anchor="middle" style="fill:white;font-size:18px">Wi-Fi: micro-ROS + WebSerial</text>
+<rect x="60" y="265" width="330" height="160" rx="15" fill="white" stroke="#94a3b8" stroke-width="2"/><text x="80" y="299" class="head">Right wheel — Motor A</text><text x="80" y="326" class="sub">Encoder inputs</text>
+<rect x="60" y="465" width="330" height="160" rx="15" fill="white" stroke="#94a3b8" stroke-width="2"/><text x="80" y="499" class="head">Left wheel — Motor B</text><text x="80" y="526" class="sub">Encoder inputs</text>
+<rect x="1210" y="265" width="330" height="160" rx="15" fill="white" stroke="#94a3b8" stroke-width="2"/><text x="1230" y="299" class="head">Right wheel — Motor A</text><text x="1230" y="326" class="sub">Motor driver outputs</text>
+<rect x="1210" y="465" width="330" height="160" rx="15" fill="white" stroke="#94a3b8" stroke-width="2"/><text x="1230" y="499" class="head">Left wheel — Motor B</text><text x="1230" y="526" class="sub">Motor driver outputs</text>
+<rect x="60" y="670" width="330" height="160" rx="15" fill="white" stroke="#94a3b8" stroke-width="2"/><text x="80" y="704" class="head">Battery voltage sensing</text><text x="80" y="731" class="sub">Divider output; not battery power</text>
+<rect x="1210" y="670" width="330" height="160" rx="15" fill="white" stroke="#94a3b8" stroke-width="2"/><text x="1230" y="704" class="head">Status / low-battery LED</text><text x="1230" y="731" class="sub">Operating state + battery warning</text>
+<text x="475" y="241" text-anchor="middle" class="head">G</text>
+<text x="520" y="241" text-anchor="middle" class="head">V</text>
+<text x="565" y="241" text-anchor="middle" class="head">S</text>
+<text x="1035" y="241" text-anchor="middle" class="head">S</text>
+<text x="1080" y="241" text-anchor="middle" class="head">V</text>
+<text x="1125" y="241" text-anchor="middle" class="head">G</text>
+<rect x="460" y="335" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="475" cy="350" r="4" fill="#475569"/>
+<rect x="505" y="335" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="520" cy="350" r="4" fill="#d97706"/>
+<rect x="550" y="335" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="565" cy="350" r="4" fill="#2563eb"/>
+<path d="M390 350V327H565V350H622" class="wire"/><text x="645" y="356" class="pin">GPIO 23</text><text x="80" y="356" class="label">Channel A</text>
+<rect x="460" y="385" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="475" cy="400" r="4" fill="#475569"/>
+<rect x="505" y="385" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="520" cy="400" r="4" fill="#d97706"/>
+<rect x="550" y="385" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="565" cy="400" r="4" fill="#2563eb"/>
+<path d="M390 400V377H565V400H622" class="wire"/><text x="645" y="406" class="pin">GPIO 22</text><text x="80" y="406" class="label">Channel B</text>
+<rect x="460" y="535" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="475" cy="550" r="4" fill="#475569"/>
+<rect x="505" y="535" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="520" cy="550" r="4" fill="#d97706"/>
+<rect x="550" y="535" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="565" cy="550" r="4" fill="#2563eb"/>
+<path d="M390 550V527H565V550H622" class="wire"/><text x="645" y="556" class="pin">GPIO 19</text><text x="80" y="556" class="label">Channel A</text>
+<rect x="460" y="585" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="475" cy="600" r="4" fill="#475569"/>
+<rect x="505" y="585" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="520" cy="600" r="4" fill="#d97706"/>
+<rect x="550" y="585" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="565" cy="600" r="4" fill="#2563eb"/>
+<path d="M390 600V577H565V600H622" class="wire"/><text x="645" y="606" class="pin">GPIO 21</text><text x="80" y="606" class="label">Channel B</text>
+<rect x="460" y="740" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="475" cy="755" r="4" fill="#475569"/>
+<rect x="505" y="740" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="520" cy="755" r="4" fill="#d97706"/>
+<rect x="550" y="740" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="565" cy="755" r="4" fill="#2563eb"/>
+<path d="M390 755V732H565V755H622" class="wire"/><text x="645" y="761" class="pin">GPIO 34</text><text x="80" y="761" class="label">Scaled battery voltage</text>
+<rect x="1020" y="335" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="1035" cy="350" r="4" fill="#2563eb"/>
+<rect x="1065" y="335" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="1080" cy="350" r="4" fill="#d97706"/>
+<rect x="1110" y="335" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="1125" cy="350" r="4" fill="#475569"/>
+<path d="M978 350H1035V327H1192V350H1208" class="wire"/><text x="955" y="356" text-anchor="end" class="pin">GPIO 27</text><text x="1230" y="356" class="label">Direction</text>
+<rect x="1020" y="385" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="1035" cy="400" r="4" fill="#2563eb"/>
+<rect x="1065" y="385" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="1080" cy="400" r="4" fill="#d97706"/>
+<rect x="1110" y="385" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="1125" cy="400" r="4" fill="#475569"/>
+<path d="M978 400H1035V377H1192V400H1208" class="wire"/><text x="955" y="406" text-anchor="end" class="pin">GPIO 14</text><text x="1230" y="406" class="label">PWM</text>
+<rect x="1020" y="535" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="1035" cy="550" r="4" fill="#2563eb"/>
+<rect x="1065" y="535" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="1080" cy="550" r="4" fill="#d97706"/>
+<rect x="1110" y="535" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="1125" cy="550" r="4" fill="#475569"/>
+<path d="M978 550H1035V527H1192V550H1208" class="wire"/><text x="955" y="556" text-anchor="end" class="pin">GPIO 13</text><text x="1230" y="556" class="label">Direction</text>
+<rect x="1020" y="585" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="1035" cy="600" r="4" fill="#2563eb"/>
+<rect x="1065" y="585" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="1080" cy="600" r="4" fill="#d97706"/>
+<rect x="1110" y="585" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="1125" cy="600" r="4" fill="#475569"/>
+<path d="M978 600H1035V577H1192V600H1208" class="wire"/><text x="955" y="606" text-anchor="end" class="pin">GPIO 12</text><text x="1230" y="606" class="label">PWM</text>
+<rect x="1020" y="740" width="30" height="30" rx="4" fill="white" stroke="#2563eb" stroke-width="2"/><circle cx="1035" cy="755" r="4" fill="#2563eb"/>
+<rect x="1065" y="740" width="30" height="30" rx="4" fill="white" stroke="#d97706" stroke-width="2"/><circle cx="1080" cy="755" r="4" fill="#d97706"/>
+<rect x="1110" y="740" width="30" height="30" rx="4" fill="white" stroke="#475569" stroke-width="2"/><circle cx="1125" cy="755" r="4" fill="#475569"/>
+<path d="M978 755H1035V732H1192V755H1208" class="wire"/><text x="955" y="761" text-anchor="end" class="pin">GPIO 2</text><text x="1230" y="761" class="label">LED control</text>
+<text x="55" y="936" class="note">S = GPIO signal (blue wires). G = ground contact. V = supply contact; voltage and rail routing need verification.</text>
+<text x="55" y="967" class="note">Each GPIO group exposes separate G, V, and S contacts. These three contacts are NOT electrically shorted together.</text>
+<text x="55" y="998" class="note">Header groups are schematic, not physical header positions. G/V contact use and hidden board traces are not verified by this photo.</text>
+<text x="55" y="1029" class="note">Motor signals go through the driver. Battery feed, encoder power wiring, and exact driver terminals require hardware verification.</text>
+</svg>
