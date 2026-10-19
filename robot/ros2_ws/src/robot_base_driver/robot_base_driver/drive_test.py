@@ -2,8 +2,8 @@
 # drive_test.py
 #
 # Drives full test courses using /odom feedback: a closed square, a
-# forward/back + 90 deg + forward/back pattern, a half circle, and a
-# half circle that drives straight back to the start.
+# forward/back + 90 deg + forward/back pattern, a half circle, a half
+# circle that drives straight back to the start, and a full circle.
 # Each segment stops when odom says it is done, so the calibrated
 # wheel_radius_m / wheel_base_m decide how far the robot really goes.
 
@@ -216,12 +216,19 @@ def half_circle_return(node, args):
     return (math.pi + 2) * args.radius
 
 
+def full_circle(node, args):
+    print(f'  full circle, radius {args.radius:.2f} m')
+    node.arc(args.radius, 2 * math.pi, args.speed)
+    return 2 * math.pi * args.radius
+
+
 TESTS = {
     'square': (square, 'square path, should finish on the start spot'),
     'out_back': (out_and_back, 'forward/back, turn 90 deg, forward/back'),
     'half_circle': (half_circle, 'half circle, should finish 2*radius to the left, facing back'),
     'half_circle_return': (half_circle_return,
                            'half circle, then straight back, should finish on the start spot'),
+    'full_circle': (full_circle, 'full circle, should finish on the start spot'),
 }
 
 
@@ -258,7 +265,7 @@ def main():
     parser.add_argument('--side', type=float, default=1.0, help='square side in m (default 1.0)')
     parser.add_argument('--distance', type=float, default=1.0, help='out_back leg in m (default 1.0)')
     parser.add_argument('--radius', type=float, default=0.5,
-                        help='half circle radius in m, both half circle tests (default 0.5)')
+                        help='radius in m for the circle tests (default 0.5)')
     parser.add_argument('--speed', type=float, default=0.1, help='linear speed in m/s (default 0.1)')
     parser.add_argument('--angular-speed', type=float, default=0.8,
                         help='in-place turn speed in rad/s (default 0.8)')
