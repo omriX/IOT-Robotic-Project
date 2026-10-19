@@ -28,6 +28,15 @@ StatusLedState led;
 void setup()
 {
   Serial.begin(115200);
+  // Hold the motors off; an unconfigured GPIO14 spins motor A at boot.
+  pinMode(MOTOR_A_DIRECTION_PIN, OUTPUT);
+  pinMode(MOTOR_A_PWM_PIN, OUTPUT);
+  pinMode(MOTOR_B_DIRECTION_PIN, OUTPUT);
+  pinMode(MOTOR_B_PWM_PIN, OUTPUT);
+  analogWrite(MOTOR_A_PWM_PIN, 0);
+  analogWrite(MOTOR_B_PWM_PIN, 0);
+  digitalWrite(MOTOR_A_DIRECTION_PIN, LOW);
+  digitalWrite(MOTOR_B_DIRECTION_PIN, LOW);
   statusLedBegin(led, LOW_BATTERY_LED_PIN);
   delay(500);
   Serial.println("\n=== status LED test ===");

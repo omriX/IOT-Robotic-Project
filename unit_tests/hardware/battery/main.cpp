@@ -15,6 +15,15 @@ constexpr int SAMPLES = 32;
 void setup()
 {
   Serial.begin(115200);
+  // Hold the motors off; an unconfigured GPIO14 spins motor A at boot.
+  pinMode(MOTOR_A_DIRECTION_PIN, OUTPUT);
+  pinMode(MOTOR_A_PWM_PIN, OUTPUT);
+  pinMode(MOTOR_B_DIRECTION_PIN, OUTPUT);
+  pinMode(MOTOR_B_PWM_PIN, OUTPUT);
+  analogWrite(MOTOR_A_PWM_PIN, 0);
+  analogWrite(MOTOR_B_PWM_PIN, 0);
+  digitalWrite(MOTOR_A_DIRECTION_PIN, LOW);
+  digitalWrite(MOTOR_B_DIRECTION_PIN, LOW);
   delay(500);
   Serial.println("\n=== battery test ===");
   Serial.printf("factor %.2f, low-battery threshold %.2f V\n",
