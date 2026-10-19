@@ -140,6 +140,18 @@ New and never run on hardware. Flash `pio run -e robot_base_serial -t upload`,
 then `$COMPOSE up agent-serial` (with no serial monitor open), and run the
 smoke test. Record whether it connects. Flash `robot_base` again afterwards.
 
+### 6b. Arduino IDE build check
+
+The repo supports the Arduino IDE as well as PlatformIO, but the Arduino path
+has not been compiled since `platformio_main.cpp` was guarded with
+`#ifdef PLATFORMIO`. Ask the operator before installing anything. Then:
+board package **esp32 2.0.17**, board **ESP32 Dev Module**; libraries
+ESP32Encoder 0.11.8, ArduPID 0.2.1 (+ FireTimer 1.0.5), WebSerial 2.1.2,
+Async TCP 3.3.2 (ESP32Async), ESP Async WebServer 3.6.0; and copy
+`robot/libraries/micro_ros_arduino` into the Arduino `libraries/` folder
+(see `robot/libraries/README.md`). Compile `robot/robot_base/robot_base.ino`
+and `robot/robot_calibration/robot_calibration.ino`, and record the results.
+
 ### 7. Record and hand back
 
 - Don't edit the calibration logs or the geometry constants on this branch:
