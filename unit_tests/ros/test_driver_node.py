@@ -1,3 +1,5 @@
+import math
+
 import pytest
 from diagnostic_msgs.msg import DiagnosticStatus
 from geometry_msgs.msg import Twist
@@ -5,8 +7,10 @@ from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import Log
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import UInt8
+from std_srvs.srv import Empty
 
-from robot_base_driver.driver_node import LOW_BATTERY_V, ODOM_STALE_S, STATUS_STALE_S, RobotBaseDriver
+from robot_base_driver.driver_node import (
+    LOW_BATTERY_V, ODOM_STALE_S, PATH_MAX_POSES, STATUS_STALE_S, RobotBaseDriver)
 
 
 class Recorder:
@@ -24,6 +28,7 @@ def node():
     n = RobotBaseDriver()
     n.cmd_vel_pub = Recorder()
     n.tf_broadcaster = Recorder()
+    n.path_pub = Recorder()
     yield n
     n.destroy_node()
 
@@ -96,3 +101,67 @@ def test_log_relay_accepts_mixed_levels(node):
     # rclpy Humble pins one severity per call site; mixed levels used to crash.
     for level in (10, 20, 30, 40, 50, 20, 99):
         node.on_log(Log(level=level, msg='hello'))
+
+
+def odom_at(x, y=0.0, yaw=0.0):
+    msg = Odometry()
+    msg.pose.pose.position.x = x
+    msg.pose.pose.position.y = y
+    msg.pose.pose.orientation.z = math.sin(yaw / 2)
+    msg.pose.pose.orientation.w = math.cos(yaw / 2)
+    return msg
+
+
+def path_xs(node):
+    return [round(p.pose.position.x, 3) for p in node.path.poses]
+
+
+def test_path_skips_tiny_moves(node):
+    for x in (0.0, 0.002, 0.004, 0.012, 0.015, 0.03):
+        node.on_odom(odom_at(x))
+    assert path_xs(node) == [0.0, 0.012, 0.03]
+
+
+def test_path_records_turn_in_place(node):
+    node.on_odom(odom_at(0.0, yaw=0.0))
+    node.on_odom(odom_at(0.0, yaw=math.radians(1)))
+    node.on_odom(odom_at(0.0, yaw=math.radians(10)))
+    assert len(node.path.poses) == 2
+
+
+def test_path_turn_across_pi_is_small(node):
+    node.on_odom(odom_at(0.0, yaw=math.radians(179)))
+    node.on_odom(odom_at(0.0, yaw=math.radians(-179)))
+    assert len(node.path.poses) == 1
+
+
+def test_path_restarts_after_odom_jump(node):
+    for x in (1.00, 1.02, 1.04):
+        node.on_odom(odom_at(x))
+    node.on_odom(odom_at(0.0))  # ESP32 rebooted, odom back at the origin
+    assert path_xs(node) == [0.0]
+
+
+def test_path_is_capped(node):
+    for i in range(PATH_MAX_POSES + 10):
+        node.on_odom(odom_at(i * 0.02))
+    assert len(node.path.poses) == PATH_MAX_POSES
+    assert node.path.poses[0].pose.position.x == pytest.approx(10 * 0.02)
+
+
+def test_path_published_only_when_changed(node):
+    node.on_odom(odom_at(0.0))
+    node.publish_path()
+    node.publish_path()
+    (path,) = node.path_pub.calls
+    assert path.header.frame_id == 'odom'
+    assert path.poses[0].header.frame_id == 'odom'
+
+
+def test_reset_path_service(node):
+    for x in (0.0, 0.05, 0.1):
+        node.on_odom(odom_at(x))
+    node.on_reset_path(Empty.Request(), Empty.Response())
+    assert node.path.poses == []
+    node.publish_path()
+    assert node.path_pub.calls[-1].poses == []

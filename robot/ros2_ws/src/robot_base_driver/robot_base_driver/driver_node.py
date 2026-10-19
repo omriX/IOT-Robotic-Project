@@ -2,26 +2,41 @@
 # driver_node.py
 #
 # Host-side driver for robot_base: relays /robot_base/log to /rosout,
-# broadcasts odom->base_link TF from /odom, publishes /diagnostics, and
-# stops the robot if /odom goes stale.
+# broadcasts odom->base_link TF from /odom, publishes /diagnostics and the
+# traveled /path, and stops the robot if /odom goes stale.
 
+import math
 import time
 
 import rclpy
 from rclpy.node import Node
 from rclpy.logging import LoggingSeverity
 
-from geometry_msgs.msg import Twist, TransformStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped, Twist, TransformStamped
+from nav_msgs.msg import Odometry, Path
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import UInt8
 from rcl_interfaces.msg import Log
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from std_srvs.srv import Empty
 from tf2_ros import TransformBroadcaster
 
 ODOM_STALE_S = 1.0
 STATUS_STALE_S = 2.0
 LOW_BATTERY_V = 6.6
+
+# /path: add a pose once the robot has moved or turned this much since the last one.
+PATH_MIN_STEP_M = 0.01
+PATH_MIN_TURN_RAD = math.radians(3.0)
+PATH_MAX_POSES = 5000
+# A single odom step this long is impossible at the speed limit; it means the
+# ESP32 rebooted and odom restarted at the origin, so the trail starts over.
+PATH_JUMP_RESET_M = 0.3
+PATH_PUBLISH_PERIOD_S = 0.5
+
+
+def yaw_of(orientation):
+    return 2.0 * math.atan2(orientation.z, orientation.w)
 
 
 class RobotBaseDriver(Node):
@@ -38,13 +53,21 @@ class RobotBaseDriver(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.path_pub = self.create_publisher(Path, '/path', 1)
+        self.path = Path()
+        self.path.header.frame_id = 'odom'
+        self.path_dirty = False
+        self.last_odom_pose = None
 
         self.create_subscription(Log, '/robot_base/log', self.on_log, 10)
         self.create_subscription(Odometry, '/odom', self.on_odom, 10)
         self.create_subscription(BatteryState, '/battery_state', self.on_battery, 10)
         self.create_subscription(UInt8, '/robot_base/status', self.on_status, 10)
 
+        self.create_service(Empty, '~/reset_path', self.on_reset_path)
+
         self.create_timer(1.0, self.publish_diagnostics)
+        self.create_timer(PATH_PUBLISH_PERIOD_S, self.publish_path)
         self.get_logger().info('robot_base_driver started')
 
     def on_log(self, msg):
@@ -81,6 +104,49 @@ class RobotBaseDriver(Node):
         t.transform.translation.z = msg.pose.pose.position.z
         t.transform.rotation = msg.pose.pose.orientation
         self.tf_broadcaster.sendTransform(t)
+
+        self.extend_path(msg)
+
+    def extend_path(self, msg):
+        pose = msg.pose.pose
+        if self.last_odom_pose is not None:
+            prev = self.last_odom_pose.position
+            if math.hypot(pose.position.x - prev.x, pose.position.y - prev.y) > PATH_JUMP_RESET_M:
+                self.get_logger().info('odom jumped (robot reboot?), restarting /path')
+                self.clear_path()
+        self.last_odom_pose = pose
+
+        if self.path.poses:
+            last = self.path.poses[-1].pose
+            moved = math.hypot(pose.position.x - last.position.x, pose.position.y - last.position.y)
+            turned = abs(math.remainder(yaw_of(pose.orientation) - yaw_of(last.orientation), 2.0 * math.pi))
+            if moved < PATH_MIN_STEP_M and turned < PATH_MIN_TURN_RAD:
+                return
+
+        stamped = PoseStamped()
+        stamped.header.stamp = msg.header.stamp
+        stamped.header.frame_id = 'odom'
+        stamped.pose = pose
+        self.path.poses.append(stamped)
+        if len(self.path.poses) > PATH_MAX_POSES:
+            del self.path.poses[0]
+        self.path_dirty = True
+
+    def clear_path(self):
+        self.path.poses = []
+        self.path_dirty = True
+
+    def on_reset_path(self, request, response):
+        self.clear_path()
+        self.get_logger().info('/path cleared')
+        return response
+
+    def publish_path(self):
+        if not self.path_dirty:
+            return
+        self.path.header.stamp = self.get_clock().now().to_msg()
+        self.path_pub.publish(self.path)
+        self.path_dirty = False
 
     def on_battery(self, msg):
         self.battery_voltage = msg.voltage

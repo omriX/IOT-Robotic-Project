@@ -20,7 +20,7 @@ setup(
     zip_safe=True,
     maintainer='omriX',
     maintainer_email='omri.hamani@gmail.com',
-    description='Host-side driver for robot_base: log relay, odom TF, diagnostics, stale-odom watchdog.',
+    description='Host-side driver for robot_base: log relay, odom TF, diagnostics, traveled path, stale-odom watchdog.',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={

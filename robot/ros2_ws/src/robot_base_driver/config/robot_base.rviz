@@ -29,7 +29,7 @@ Visualization Manager:
       Enabled: true
       Topic:
         Value: /odom
-      Keep: 200
+      Keep: 30
       Position Tolerance: 0.01
       Angle Tolerance: 0.1
       Covariance:
@@ -41,6 +41,16 @@ Visualization Manager:
         Head Length: 0.02
         Head Radius: 0.015
         Value: Arrow
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Name: Traveled Path
+      Enabled: true
+      Topic:
+        Value: /path
+      Line Style: Lines
+      Color: 0; 200; 255
+      Alpha: 1
+      Buffer Length: 1
       Value: true
   Enabled: true
   Global Options:
