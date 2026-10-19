@@ -48,6 +48,18 @@ constexpr double PID_D = 0.0;
 constexpr double STRAIGHT_CORRECTION_GAIN_PER_S = 2.0;
 constexpr double STRAIGHT_MAX_TRIM_FRACTION = 0.20;
 constexpr int PID_OUTPUT_LIMIT = 230;
+// Feedforward PWM per target tick/interval, so the PID only trims the rest.
+// Measured wheels-up: ~35 PWM holds 76 ticks, ~80 holds 143.
+constexpr double PID_FEEDFORWARD_PER_TICK = 0.4;
+// Startup kick: a PWM burst to break static friction at low speeds, ended as
+// soon as the encoder sees movement. 255 for 100ms spun the wheels to ~300
+// ticks/interval and made them bounce. kick_pwm / kick_ms are live ROS
+// parameters; kick_ms 0 disables it.
+constexpr int DEFAULT_KICK_PWM = 150;
+constexpr int DEFAULT_KICK_MS = 100;
+constexpr double KICK_STALL_TICKS = 2.0;
+constexpr unsigned long KICK_STALL_MS = 150;
+constexpr int KICK_MAX_TRIES = 3;
 // Logs per-wheel setpoint / measured ticks / PWM every 100ms over WebSerial.
 #define DEBUG_PID_LOOP 1
 

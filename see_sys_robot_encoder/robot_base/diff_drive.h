@@ -149,6 +149,83 @@ private:
   }
 };
 
+// Full-PWM burst that gets a wheel past static friction, which the PID alone
+// can't do at low speeds. Inputs are in the raw motor frame the PID uses.
+// A wheel is kicked when it starts (or reverses) from standstill, or when it
+// is commanded to move but stays still for stall_cycles. The kick ends as soon
+// as the encoder shows movement, or after kick_cycles. After max_kicks kicks
+// without movement it gives up, so a jammed wheel isn't pulsed forever.
+class StartupKick
+{
+public:
+  bool kicking = false;
+
+  bool update(double setpoint_ticks, double measured_ticks, int kick_cycles,
+              int stall_cycles, double stall_ticks, int max_kicks)
+  {
+    const int direction = setpoint_ticks > 0 ? 1 : (setpoint_ticks < 0 ? -1 : 0);
+    if (direction == 0 || kick_cycles <= 0)
+    {
+      reset();
+      return false;
+    }
+
+    const bool still = std::fabs(measured_ticks) < stall_ticks;
+    if (direction != direction_)
+    {
+      // A reversal at speed is left to the PID; only a standing wheel is kicked.
+      reset();
+      direction_ = direction;
+      if (still)
+        start(kick_cycles);
+    }
+    else if (remaining_ > 0 && !still)
+    {
+      remaining_ = 0;
+      kicks_ = 0;
+    }
+    else if (remaining_ == 0)
+    {
+      if (!still)
+      {
+        stalled_ = 0;
+        kicks_ = 0;
+      }
+      else if (++stalled_ >= stall_cycles && kicks_ < max_kicks)
+      {
+        start(kick_cycles);
+      }
+    }
+
+    kicking = remaining_ > 0;
+    if (kicking)
+      remaining_--;
+    return kicking;
+  }
+
+  void reset()
+  {
+    direction_ = 0;
+    remaining_ = 0;
+    stalled_ = 0;
+    kicks_ = 0;
+    kicking = false;
+  }
+
+private:
+  int direction_ = 0;
+  int remaining_ = 0;
+  int stalled_ = 0;
+  int kicks_ = 0;
+
+  void start(int kick_cycles)
+  {
+    remaining_ = kick_cycles;
+    stalled_ = 0;
+    kicks_++;
+  }
+};
+
 // Encoder deltas (already in the PID's forward-positive sign convention) ->
 // odometry, integrated in place into `pose`. Returns the instantaneous
 // linear/angular velocity for the same interval

@@ -98,10 +98,13 @@ struct SharedState
   double max_linear_mps = DEFAULT_MAX_LINEAR_MPS;
   double max_angular_rps = DEFAULT_MAX_ANGULAR_RPS;
   unsigned long cmd_vel_timeout_ms = CMD_VEL_TIMEOUT_MS;
+  int kick_pwm = DEFAULT_KICK_PWM;
+  unsigned long kick_ms = DEFAULT_KICK_MS;
 #if DEBUG_PID_LOOP
   double pid_setpoint_a = 0, pid_input_a = 0, pid_output_a = 0;
   double pid_setpoint_b = 0, pid_input_b = 0, pid_output_b = 0;
   double straight_error_ticks = 0, straight_trim_ticks = 0;
+  bool kick_a = false, kick_b = false;
 #endif
 };
 SharedState shared;
@@ -140,6 +143,20 @@ void motors(int speedA, int speedB)
   }
 }
 
+// Never drive a wheel against its commanded direction: braking an overspeeding
+// wheel in reverse made it bounce to a stop and stall again. Positive PWM gives
+// positive ticks, so the limits follow the setpoint's sign.
+void limitToSetpointDirection(ArduPID &controller, double setpoint)
+{
+  if (setpoint > 0)
+    controller.setOutputLimits(0, PID_OUTPUT_LIMIT);
+  else if (setpoint < 0)
+    controller.setOutputLimits(-PID_OUTPUT_LIMIT, 0);
+  else
+    controller.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
+  controller.setBias(PID_FEEDFORWARD_PER_TICK * setpoint);
+}
+
 void controlTask(void *pvParameters)
 {
   (void)pvParameters;
@@ -150,6 +167,9 @@ void controlTask(void *pvParameters)
   long prevCountB = 0;
   Pose2D pose;
   StraightDriveCorrection straightCorrection;
+  StartupKick kickA;
+  StartupKick kickB;
+  const int stallCycles = (int)(KICK_STALL_MS / CONTROL_PERIOD_MS);
 
   for (;;)
   {
@@ -161,6 +181,8 @@ void controlTask(void *pvParameters)
     unsigned long cmdVelTimeoutMs = shared.cmd_vel_timeout_ms;
     double wheelBaseM = shared.wheel_base_m;
     double ticksPerM = ticksPerMeter(COUNTS_PER_WHEEL_REV, shared.wheel_radius_m);
+    int kickPwm = shared.kick_pwm;
+    int kickCycles = (int)((shared.kick_ms + CONTROL_PERIOD_MS - 1) / CONTROL_PERIOD_MS);
     portEXIT_CRITICAL(&sharedStateMux);
 
     bool isStopped = faulted || freewheelMode || millis() - lastCmdMs > cmdVelTimeoutMs ||
@@ -195,23 +217,33 @@ void controlTask(void *pvParameters)
     // winds up while the wheels coast down and then holds the motors at a
     // nonzero PWM at standstill. Resetting every cycle also keeps ArduPID's
     // timer aligned with this loop for the first compute after resuming.
+    int pwmA = 0, pwmB = 0;
     if (isStopped)
     {
       controllerA.reset();
       controllerB.reset();
       outputA = 0;
       outputB = 0;
+      kickA.reset();
+      kickB.reset();
     }
     else
     {
+      // The PID keeps running through a kick so its integral is ready when the kick ends.
+      limitToSetpointDirection(controllerA, setpointA);
+      limitToSetpointDirection(controllerB, setpointB);
       controllerA.compute();
       controllerB.compute();
+      bool kickingA = kickA.update(setpointA, inputA, kickCycles, stallCycles, KICK_STALL_TICKS, KICK_MAX_TRIES);
+      bool kickingB = kickB.update(setpointB, inputB, kickCycles, stallCycles, KICK_STALL_TICKS, KICK_MAX_TRIES);
+      pwmA = kickingA ? (setpointA > 0 ? kickPwm : -kickPwm) : (int)outputA;
+      pwmB = kickingB ? (setpointB > 0 ? kickPwm : -kickPwm) : (int)outputB;
     }
 
     if (freewheelMode)
       motors(0, 0);
     else
-      motors((int)outputA, (int)outputB);
+      motors(pwmA, pwmB);
 
     OdometryDelta odom = integrateOdometry(pose, deltaLeftTicks, deltaRightTicks, ticksPerM, wheelBaseM, CONTROL_PERIOD_S);
 
@@ -230,6 +262,8 @@ void controlTask(void *pvParameters)
     shared.pid_output_b = outputB;
     shared.straight_error_ticks = straightCorrection.travel_error_ticks;
     shared.straight_trim_ticks = straightCorrection.trim_ticks;
+    shared.kick_a = kickA.kicking;
+    shared.kick_b = kickB.kicking;
 #endif
     portEXIT_CRITICAL(&sharedStateMux);
 
@@ -353,6 +387,8 @@ void loadParamsFromNvs()
   double maxLinearMps = prefs.getDouble("max_linear_mps", DEFAULT_MAX_LINEAR_MPS);
   double maxAngularRps = prefs.getDouble("max_angular_rps", DEFAULT_MAX_ANGULAR_RPS);
   unsigned long cmdVelTimeoutMs = (unsigned long)prefs.getInt("cmd_to_ms", (int)CMD_VEL_TIMEOUT_MS);
+  int kickPwm = prefs.getInt("kick_pwm", DEFAULT_KICK_PWM);
+  unsigned long kickMs = (unsigned long)prefs.getInt("kick_ms", DEFAULT_KICK_MS);
 
   portENTER_CRITICAL(&sharedStateMux);
   shared.wheel_radius_m = wheelRadiusM;
@@ -360,6 +396,8 @@ void loadParamsFromNvs()
   shared.max_linear_mps = maxLinearMps;
   shared.max_angular_rps = maxAngularRps;
   shared.cmd_vel_timeout_ms = cmdVelTimeoutMs;
+  shared.kick_pwm = kickPwm;
+  shared.kick_ms = kickMs;
   portEXIT_CRITICAL(&sharedStateMux);
 
   logger.min_level = (uint8_t)prefs.getInt("log_level", DEFAULT_LOG_LEVEL);
@@ -386,6 +424,26 @@ bool on_parameter_changed(const Parameter *old_param, const Parameter *new_param
     shared.cmd_vel_timeout_ms = (unsigned long)new_param->value.integer_value;
     portEXIT_CRITICAL(&sharedStateMux);
     prefs.putInt("cmd_to_ms", (int)new_param->value.integer_value);
+  }
+  else if (strcmp(name, "kick_pwm") == 0)
+  {
+    long pwm = new_param->value.integer_value;
+    if (pwm < 0 || pwm > 255)
+      return false;
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.kick_pwm = (int)pwm;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putInt("kick_pwm", (int)pwm);
+  }
+  else if (strcmp(name, "kick_ms") == 0)
+  {
+    long ms = new_param->value.integer_value;
+    if (ms < 0 || ms > 500)
+      return false;
+    portENTER_CRITICAL(&sharedStateMux);
+    shared.kick_ms = (unsigned long)ms;
+    portEXIT_CRITICAL(&sharedStateMux);
+    prefs.putInt("kick_ms", (int)ms);
   }
   else if (strcmp(name, "odom_rate_hz") == 0)
   {
@@ -526,6 +584,7 @@ bool create_entities()
   double wheelRadiusM = shared.wheel_radius_m, wheelBaseM = shared.wheel_base_m;
   double maxLinearMps = shared.max_linear_mps, maxAngularRps = shared.max_angular_rps;
   int64_t cmdVelTimeoutMs = (int64_t)shared.cmd_vel_timeout_ms;
+  int64_t kickPwm = shared.kick_pwm, kickMs = (int64_t)shared.kick_ms;
   portEXIT_CRITICAL(&sharedStateMux);
 
   RCCHECK(rclc_add_parameter(&param_server, "log_level", RCLC_PARAMETER_INT));
@@ -535,6 +594,8 @@ bool create_entities()
   RCCHECK(rclc_add_parameter(&param_server, "wheel_base_m", RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, "max_linear_mps", RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, "max_angular_rps", RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, "kick_pwm", RCLC_PARAMETER_INT));
+  RCCHECK(rclc_add_parameter(&param_server, "kick_ms", RCLC_PARAMETER_INT));
 
   RCCHECK(rclc_parameter_set_int(&param_server, "log_level", logger.min_level));
   RCCHECK(rclc_parameter_set_int(&param_server, "cmd_vel_timeout_ms", cmdVelTimeoutMs));
@@ -543,6 +604,8 @@ bool create_entities()
   RCCHECK(rclc_parameter_set_double(&param_server, "wheel_base_m", wheelBaseM));
   RCCHECK(rclc_parameter_set_double(&param_server, "max_linear_mps", maxLinearMps));
   RCCHECK(rclc_parameter_set_double(&param_server, "max_angular_rps", maxAngularRps));
+  RCCHECK(rclc_parameter_set_int(&param_server, "kick_pwm", kickPwm));
+  RCCHECK(rclc_parameter_set_int(&param_server, "kick_ms", kickMs));
 
   rosLog(logger, rcl_interfaces__msg__Log__INFO, "robot_base connected");
   if (!selftestLogged)
@@ -597,12 +660,13 @@ void log_pid_debug()
   double spA = shared.pid_setpoint_a, inA = shared.pid_input_a, outA = shared.pid_output_a;
   double spB = shared.pid_setpoint_b, inB = shared.pid_input_b, outB = shared.pid_output_b;
   double straightError = shared.straight_error_ticks, straightTrim = shared.straight_trim_ticks;
+  bool kickA = shared.kick_a, kickB = shared.kick_b;
   portEXIT_CRITICAL(&sharedStateMux);
   if (spA == 0 && spB == 0 && outA == 0 && outB == 0)
     return;
   dprintln(String("pid ") + (MOTOR_A_IS_LEFT ? "A=L" : "A=R") +
-           " A sp:" + String(spA) + " in:" + String(inA) + " out:" + String(outA) +
-           " | B sp:" + String(spB) + " in:" + String(inB) + " out:" + String(outB) +
+           " A sp:" + String(spA) + " in:" + String(inA) + " out:" + String(outA) + (kickA ? " KICK" : "") +
+           " | B sp:" + String(spB) + " in:" + String(inB) + " out:" + String(outB) + (kickB ? " KICK" : "") +
            " | straight err_ticks:" + String(straightError) + " trim:" + String(straightTrim));
 }
 #endif
