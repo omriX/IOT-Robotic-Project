@@ -15,7 +15,12 @@ doc will replace it.
   needs USB passthrough to the VM (check with `ls /dev/ttyUSB*`).
 - Hardware: ESP32-WROOM-32 (CP2102 USB, `10c4:ea60`), L293D motor driver,
   2S Li-ion/LiPo battery, Technion lab chassis with two encoder gear motors.
-- Branch: `omrih/start`.
+- Branch: `omrib/handoff`. Separately, `omrih/start` holds this morning's lab
+  work (19 Oct calibration, `drive_test.py`). The two branches will be merged
+  later by the team; don't merge them in this session.
+- The robot's NVS already holds the 19 Oct calibration: `wheel_base_m = 0.119528`,
+  `wheel_radius_m = 0.021933`. NVS overrides firmware defaults, so these stay
+  live even when flashing this branch (whose defaults are still 0.116 / 0.021961).
 
 ## What changed today (read before acting)
 
@@ -47,7 +52,7 @@ doc will replace it.
 ### 0. Prepare
 
 ```sh
-git fetch && git checkout omrih/start && git pull
+git fetch && git checkout omrib/handoff && git pull
 cp robot/robot_base/network_local.example.h robot/robot_base/network_local.h   # operator fills it in
 ```
 
@@ -85,8 +90,9 @@ $COMPOSE run --rm ros_tools python3 /repo/unit_tests/integration/smoke_test.py -
 ```
 
 Read back and record every parameter value (the smoke test prints them). The
-expected defaults are `wheel_radius_m=0.021961`, `wheel_base_m=0.116`, and
-`cmd_vel_timeout_ms=1000`. Values that differ were set earlier and saved in NVS.
+expected live values are `wheel_radius_m=0.021933`, `wheel_base_m=0.119528`
+(from NVS, see Setup facts), and `cmd_vel_timeout_ms=1000`. Anything else was
+changed in NVS at some point; record it.
 
 ### 3. Intermittent boot self-test failure
 
@@ -110,18 +116,16 @@ Look for a pattern: one motor, one direction, the first phase from rest, or low
 battery. Propose a fix (for example PWM, phase length or threshold) with the
 numbers, and ask the operator before changing anything.
 
-### 4. Wheel-base calibration
+### 4. Wheel-base calibration: confirm only
 
-`robot/docs/live_calibration_log.md` part 2. Only the September ruler
-measurement (0.116 m) exists so far.
+Done on 19 Oct (`omrih/start`): 0.116 → 0.119528 m, from a single 90° turn.
+Run one confirmation turn and record the result. Don't apply a new value unless
+the error is more than about 1°, and ask the operator first.
 
 ```sh
 $COMPOSE run --rm ros_tools bash
 ros2 run robot_base_driver auto_calibrate rotate --angle 90 --angular-speed 0.5
 ```
-
-The operator measures the actual angle against tape lines. Apply the new value,
-then confirm with a second run. Fill in the part 2 table.
 
 ### 5. Course acceptance test
 
@@ -138,13 +142,11 @@ smoke test. Record whether it connects. Flash `robot_base` again afterwards.
 
 ### 7. Record and hand back
 
-- The final `wheel_base_m` (and `wheel_radius_m` if changed) goes to:
-  `robot/robot_base/robot_hardware.h` (`WHEEL_BASE_M`),
-  the URDF `wheel_separation` in `robot/ros2_ws/src/robot_base_driver/urdf/robot_base.urdf.xacro`,
-  and the summary table in `robot/docs/calibration_log_1.md`.
-- Live calibration tables: `robot/docs/live_calibration_log.md` (session info too).
-- Everything else (hardware test outcomes, battery factor, self-test data and
+- Don't edit the calibration logs or the geometry constants on this branch:
+  `omrih/start` changed the same lines, and the values get reconciled at merge
+  time. Record calibration results in the session file below instead.
+- Everything (calibration confirmation, course test table, hardware test outcomes, battery factor, self-test data and
   proposal, smoke test output, serial result, any NVS parameter changes):
   a new `robot/docs/lab_session_2026-10-19.md`.
 - Run `g++ ... test_diff_drive.cpp` and the pytest suite again if code changed.
-- Commit to `omrih/start` and push, with the operator's go-ahead.
+- Commit to `omrib/handoff` and push, with the operator's go-ahead.
