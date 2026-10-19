@@ -8,6 +8,7 @@
 // meters<->ticks round-trip, odometry closing a square loop, and angle wrapping.
 
 #include "diff_drive.h"
+#include "robot_hardware.h"
 #include <cstdio>
 #include <cmath>
 
@@ -34,10 +35,7 @@ static bool near(double a, double b, double eps = 1e-6)
   return std::fabs(a - b) < eps;
 }
 
-// Shared constants, matching robot_config.h's calibrated defaults.
-constexpr double COUNTS_PER_WHEEL_REV = 4216.0;
-constexpr double WHEEL_RADIUS_M = 0.021961;
-constexpr double WHEEL_BASE_M = 0.116;
+// Use the same calibrated geometry as the firmware and hardware tests.
 constexpr double CONTROL_PERIOD_S = 0.050;
 constexpr double MAX_TICKS = 350.0;
 constexpr double TICKS_PER_M = ticksPerMeter(COUNTS_PER_WHEEL_REV, WHEEL_RADIUS_M);

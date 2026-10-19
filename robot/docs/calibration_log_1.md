@@ -81,6 +81,10 @@ calibration tool proposed 0.021961 m. That value was applied with
 the parameter back. This is the current effective radius used by the robot.
 It is stored in the ESP32's NVS and in `robot_hardware.h` as the default.
 
+**19 October 2026 follow-up:** A second `auto_calibrate` session refined the radius to 0.021933 m and,
+from a 90° in-place turn, the wheel base to 0.119528 m (up from the ruler-measured 0.116 m). Both were
+read back from the robot and written into `robot_hardware.h`. Details are in `live_calibration_log.md`.
+
 ---
 
 ## 4. Sign / side convention
@@ -146,8 +150,8 @@ steps, logging `pwm:<val> dtick:<val>` at each step over Serial/WebSerial.
 | Constant | Value |
 |---|---|
 | `COUNTS_PER_WHEEL_REV` | 4216 |
-| `WHEEL_BASE_M` | 0.116 |
-| `WHEEL_RADIUS_M` | 0.021961 (October 2026 update) |
+| `WHEEL_BASE_M` | 0.119528 (19 October 2026 update) |
+| `WHEEL_RADIUS_M` | 0.021933 (19 October 2026 update) |
 | `MOTOR_A_IS_LEFT` | false |
 | `LEFT_DIR_SIGN` | -1.0 |
 | `RIGHT_DIR_SIGN` | -1.0 |

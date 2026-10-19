@@ -118,9 +118,12 @@ want to do it manually or the script doesn't behave as expected.
 | Trial | actual (m) | reported (m) | current wheel_radius_m | new wheel_radius_m |
 |---|---|---|---|---|
 | 1 (17 October 2026) | 1.04 | 1.0419 | 0.022000 | 0.021961 |
-| 2 (confirm) |  |  |  |  |
+| 2 (19 October 2026) | not captured | not captured | 0.021961 | 0.021933 |
 
-- **WHEEL_RADIUS_M (final, live value):** 0.021961 m; confirmed by ROS parameter readback. Also saved in the firmware default.
+Trial 2 ran `auto_calibrate straight` from the Ubuntu lab VM. Its actual/reported ratio was 0.99873,
+derived from the old and new values. The raw tape and odom readings stayed in the VM terminal.
+
+- **WHEEL_RADIUS_M (final, live value):** 0.021933 m; confirmed by ROS parameter readback on 19 October 2026. Also saved in the firmware default.
 
 ---
 
@@ -148,10 +151,14 @@ lines) before computing and offering to apply the new value.
 
 | Trial | reported theta (rad) | target (π/2 ≈ 1.5708) | current wheel_base_m | new wheel_base_m |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
+| 1 (19 October 2026) | not captured | 1.5708 | 0.116000 | 0.119528 |
 | 2 (confirm) |  |  |  |  |
 
-- **WHEEL_BASE_M (final, live value):**
+Trial 1 ran `auto_calibrate rotate` from the Ubuntu lab VM. Odom over-reported the turn by 3.04%
+(reported/actual = 1.03041, derived from the old and new values). The raw readings stayed in the VM
+terminal.
+
+- **WHEEL_BASE_M (final, live value):** 0.119528 m; confirmed by ROS parameter readback on 19 October 2026. Also saved in the firmware default.
 
 ---
 

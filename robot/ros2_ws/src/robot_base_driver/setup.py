@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'driver_node = robot_base_driver.driver_node:main',
             'auto_calibrate = robot_base_driver.auto_calibrate:main',
+            'drive_test = robot_base_driver.drive_test:main',
         ],
     },
 )

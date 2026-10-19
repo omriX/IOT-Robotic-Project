@@ -15,12 +15,13 @@ doc will replace it.
   needs USB passthrough to the VM (check with `ls /dev/ttyUSB*`).
 - Hardware: ESP32-WROOM-32 (CP2102 USB, `10c4:ea60`), L293D motor driver,
   2S Li-ion/LiPo battery, Technion lab chassis with two encoder gear motors.
-- Branch: `omrib/handoff`. Separately, `omrih/start` holds this morning's lab
-  work (19 Oct calibration, `drive_test.py`). The two branches will be merged
-  later by the team; don't merge them in this session.
+- Integration branch: `merge/omrib-omrih` combines `omrib/handoff` with
+  `omrih/start`, including the 19 Oct calibration and `drive_test.py` in the
+  restructured `robot/` tree.
 - The robot's NVS already holds the 19 Oct calibration: `wheel_base_m = 0.119528`,
   `wheel_radius_m = 0.021933`. NVS overrides firmware defaults, so these stay
-  live even when flashing this branch (whose defaults are still 0.116 / 0.021961).
+  live even when flashing this branch. Firmware defaults in `robot_hardware.h`
+  now match these calibrated values.
 
 ## What changed today (read before acting)
 
@@ -52,7 +53,7 @@ doc will replace it.
 ### 0. Prepare
 
 ```sh
-git fetch && git checkout omrib/handoff && git pull
+git fetch && git checkout merge/omrib-omrih && git pull --ff-only
 cp robot/robot_base/network_local.example.h robot/robot_base/network_local.h   # operator fills it in
 ```
 

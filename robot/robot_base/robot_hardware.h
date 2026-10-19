@@ -27,8 +27,8 @@ constexpr float ADC_LOGIC_LEVEL_V = 3.3;
 
 // ==== Calibration (see docs/calibration_log_1.md) ====
 constexpr double COUNTS_PER_WHEEL_REV = 4216.0;
-constexpr double WHEEL_BASE_M = 0.116;
-constexpr double WHEEL_RADIUS_M = 0.021961;
+constexpr double WHEEL_BASE_M = 0.119528;
+constexpr double WHEEL_RADIUS_M = 0.021933;
 constexpr bool MOTOR_A_IS_LEFT = false;
 constexpr double LEFT_DIR_SIGN = -1.0;
 constexpr double RIGHT_DIR_SIGN = -1.0;
