@@ -2,7 +2,8 @@
 # drive_test.py
 #
 # Drives full test courses using /odom feedback: a closed square, a
-# forward/back + 90 deg + forward/back pattern, and a half circle.
+# forward/back + 90 deg + forward/back pattern, a half circle, and a
+# half circle that drives straight back to the start.
 # Each segment stops when odom says it is done, so the calibrated
 # wheel_radius_m / wheel_base_m decide how far the robot really goes.
 
@@ -205,10 +206,22 @@ def half_circle(node, args):
     return math.pi * args.radius
 
 
+def half_circle_return(node, args):
+    print(f'  half circle, radius {args.radius:.2f} m')
+    node.arc(args.radius, math.pi, args.speed)
+    print(f'  turn 90 deg, forward {2 * args.radius:.2f} m back to start, turn 90 deg')
+    node.rotate(math.radians(90), args.angular_speed)
+    node.drive_distance(2 * args.radius, args.speed)
+    node.rotate(math.radians(90), args.angular_speed)
+    return (math.pi + 2) * args.radius
+
+
 TESTS = {
     'square': (square, 'square path, should finish on the start spot'),
     'out_back': (out_and_back, 'forward/back, turn 90 deg, forward/back'),
     'half_circle': (half_circle, 'half circle, should finish 2*radius to the left, facing back'),
+    'half_circle_return': (half_circle_return,
+                           'half circle, then straight back, should finish on the start spot'),
 }
 
 
@@ -244,7 +257,8 @@ def main():
     parser.add_argument('test', choices=list(TESTS) + ['all'])
     parser.add_argument('--side', type=float, default=1.0, help='square side in m (default 1.0)')
     parser.add_argument('--distance', type=float, default=1.0, help='out_back leg in m (default 1.0)')
-    parser.add_argument('--radius', type=float, default=0.5, help='half circle radius in m (default 0.5)')
+    parser.add_argument('--radius', type=float, default=0.5,
+                        help='half circle radius in m, both half circle tests (default 0.5)')
     parser.add_argument('--speed', type=float, default=0.1, help='linear speed in m/s (default 0.1)')
     parser.add_argument('--angular-speed', type=float, default=0.8,
                         help='in-place turn speed in rad/s (default 0.8)')
