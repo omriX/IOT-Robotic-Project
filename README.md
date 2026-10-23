@@ -46,6 +46,7 @@ For development, you can use the official **Arduino IDE** with the Arduino-ESP32
 * Battery, voltage measurement components, and low-battery LED - (**todo**)
 
 ## Connection diagram:
+ **todo**
 
 ![Main ESP32 connection diagram](Documentation/main_esp32_pin_diagram.svg)
 
