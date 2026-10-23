@@ -85,12 +85,33 @@ Edit `robot_base/network_local.h` (Git ignores it, so credentials stay local):
 | `WIFI_SSID`, `WIFI_PASSWORD` | the 2.4 GHz network from B |
 | `MICROROS_AGENT_IP` | `PC_IP` (Wi-Fi mode only) |
 
-Flash from the **repository root** with the robot on USB:
+Connect the robot by USB, then flash using either PlatformIO or Arduino IDE.
+
+### C1. PlatformIO
+
+Flash from the **repository root**:
 
 ```sh
 pio run -e robot_base -t upload          # Wi-Fi
 pio run -e robot_base_serial -t upload   # USB serial
 ```
+
+### C2. Arduino IDE
+
+1. Install the **Arduino-ESP32 2.0.17** board package and select
+   **ESP32 Dev Module** as the board.
+2. Install the library versions listed in the [repository README](../../README.md#arduinoesp32-libraries-used-in-this-project).
+   Copy `robot/libraries/micro_ros_arduino` into the `libraries` directory of
+   your Arduino sketchbook (see the IDE's sketchbook location in Preferences).
+   Use this repository's custom build; the stock Library Manager version does
+   not support this firmware's odometry and parameter server. See the
+   [custom library notes](../libraries/README.md).
+3. Open `robot_base/robot_base.ino` from `robot/`. Use the same
+   `robot_base/network_local.h` settings configured above. For USB serial mode,
+   uncomment `#define MICROROS_TRANSPORT_SERIAL 1` in that file; for Wi-Fi mode,
+   leave it commented out.
+4. Select the robot's USB port under **Tools > Port**, set **Upload Speed** to
+   **115200**, and click **Upload**.
 
 ---
 
@@ -102,7 +123,8 @@ Wi-Fi:
 $COMPOSE up agent-udp
 ```
 
-Serial (close any `pio device monitor` first: only one program can hold the port):
+Serial (close any `pio device monitor` or Arduino IDE Serial Monitor first:
+only one program can hold the port):
 
 ```sh
 ls -l /dev/ttyUSB*                                         # expect /dev/ttyUSB0
@@ -140,6 +162,10 @@ To save the robot's ROS log to `<repo>/robot/logs/` on the PC:
 ```sh
 ros2 topic echo /robot_base/log > /logs/session.txt
 ```
+
+To view the robot's live position and odometry in RViz, follow the supplementary
+[RViz live view instructions for Ubuntu](rviz_live_view.md). That guide uses
+the Wi-Fi agent (`agent-udp`), so flash the Wi-Fi firmware option in C first.
 
 ## G. Stop
 
