@@ -1,1 +1,4 @@
-ESP32/SECRETS.h
+.pio/
+robot/robot_base/network_local.h
+__pycache__/
+.vscode

@@ -1,0 +1,14 @@
+# Ubuntu lab override: host networking for the UDP agent and the tools container.
+# Use as an extra -f on every command:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml ...
+# `!reset` needs Docker Compose v2.24.4 or newer (check with `docker compose version`).
+
+services:
+  agent-udp:
+    network_mode: host
+    ports: !reset []
+
+  ros_tools:
+    network_mode: host
+    volumes:
+      - ../logs:/logs
