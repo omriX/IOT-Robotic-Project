@@ -14,7 +14,7 @@ Intended System Capabilities:
 * Documentation: wiring diagram + basic operating instructions
 * Unit Tests: tests for individual hardware components (input / output devices)
 * flutter_app : dart code for our Flutter app.
-* Parameters: contains description of parameters and settings that can be modified IN YOUR CODE
+* Parameters: the robot's live ROS parameters are described in [robot/docs/ros_parameters.md](robot/docs/ros_parameters.md)
 * Assets: link to 3D printed parts, Audio files used in this project, Fritzing file for connection diagram (FZZ format) etc
 
 ## Arduino/ESP32 libraries used in this project:
