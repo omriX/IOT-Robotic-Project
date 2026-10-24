@@ -3,7 +3,7 @@
 <package format="3">
   <name>robot_base_driver</name>
   <version>0.0.1</version>
-  <description>Host-side driver for robot_base: log relay, odom-&gt;base_link TF, /diagnostics, stale-odom watchdog.</description>
+  <description>Host-side driver for robot_base: log relay, odom TF, diagnostics, traveled path, stale-odom watchdog.</description>
   <maintainer email="omri.hamani@gmail.com">omriX</maintainer>
   <license>Apache-2.0</license>
 

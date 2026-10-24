@@ -5,7 +5,7 @@
 | [hardware/](hardware/) | One component at a time: motors, encoders, battery divider, status LED | Robot over USB |
 | [ros/](ros/) | `robot_base_driver`: diagnostics, stale-odom watchdog, TF, calibration math | Docker only |
 | [integration/](integration/) | The whole chain: robot → agent → ROS 2 topics and parameters | Robot connected to the agent |
-| [../robot/test/](../robot/test/) | Firmware drive math (`diff_drive.h`): kinematics, odometry, straight correction | A C++ compiler |
+| [../robot/test/](../robot/test/) | Firmware drive math (`diff_drive.h`): kinematics, odometry, straight correction, friction feedforward, startup kick | A C++ compiler |
 
 Commands below run from the repository root unless stated otherwise.
 
@@ -51,7 +51,7 @@ source without rebuilding the image.
 
 ## Integration smoke test
 
-Start the agent and wait for `state:AGENT_CONNECTED` (see the quick start), then
+Start the agent and wait for `state:AGENT_CONNECTED` (see [ubuntu_lab_setup.md](../robot/docs/ubuntu_lab_setup.md)), then
 from `robot/`:
 
 ```sh
@@ -61,6 +61,6 @@ docker compose -f docker/docker-compose.yml run --rm ros_tools \
 
 On Ubuntu add `-f docker/docker-compose.linux.yml` after the first `-f`.
 
-Checks `/odom` rate, battery voltage, boot self-test result, and that all seven
-parameters are readable. `--drive` asks first, then drives 14 cm forward and
+Checks `/odom` rate, battery voltage, boot self-test result, and that all twelve
+[ROS parameters](../robot/docs/ros_parameters.md) are readable. `--drive` asks first, then drives 14 cm forward and
 checks distance, heading drift, and that the robot stops. Exits 1 on any FAIL.

@@ -1,22 +1,14 @@
 <?xml version="1.0"?>
 <!--
-  robot_base.urdf.xacro
-
-  Deliberately simple: a box body, two cylinder wheels, one caster sphere.
-  Exists to move in RViz off the driver node's odom->base_link TF, and as
-  the seed for a future Gazebo model. All joints are fixed, so the robot
-  moves as a whole via TF rather than via individual wheel rotation, and
-  no joint_state_publisher is needed.
-
-  wheel_radius/wheel_separation mirror robot_hardware.h's WHEEL_RADIUS_M/
-  WHEEL_BASE_M defaults; both are now live ROS parameters on the ESP32
-  (rclc_parameter_server), so keep these in sync by hand if recalibrated.
+  Visual model for RViz: box body, two wheels, caster. All joints are fixed;
+  the robot moves as a whole through the odom->base_link TF.
+  wheel_radius / wheel_separation match WHEEL_RADIUS_M / WHEEL_BASE_M in robot_hardware.h.
 -->
 <robot name="robot_base" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:property name="wheel_radius" value="0.021961" />
+  <xacro:property name="wheel_radius" value="0.021933" />
   <xacro:property name="wheel_width" value="0.014" />
-  <xacro:property name="wheel_separation" value="0.116" />
+  <xacro:property name="wheel_separation" value="0.119528" />
 
   <xacro:property name="body_length" value="0.14" />
   <xacro:property name="body_width" value="0.10" />

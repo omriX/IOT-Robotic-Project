@@ -1,11 +1,5 @@
-// test/test_diff_drive.cpp
-//
-// PC-only unit tests for diff_drive.h
-// Run with:
+// PC unit tests for diff_drive.h. From robot/:
 //   g++ -std=c++17 -I robot_base test/test_diff_drive.cpp -o /tmp/t && /tmp/t
-//
-// Covers: straight/spin/arc kinematics, saturation scaling preserving curvature,
-// meters<->ticks round-trip, odometry closing a square loop, and angle wrapping.
 
 #include "diff_drive.h"
 #include "robot_hardware.h"
@@ -50,7 +44,7 @@ void test_straight()
 
 void test_spin()
 {
-  // v=0, w>0 (CCW) -> wheels opposite, equal magnitude (second validation case).
+  // v=0, w>0 (CCW) -> wheels opposite, equal magnitude.
   auto sp = cmdVelToWheelSetpoints(0.0, 1.0, WHEEL_BASE_M, TICKS_PER_M, CONTROL_PERIOD_S, 1.0, 1.0, MAX_TICKS);
   CHECK("spin: opposite signs", (sp.left_ticks_per_interval < 0) != (sp.right_ticks_per_interval < 0));
   CHECK("spin: equal magnitude", near(std::fabs(sp.left_ticks_per_interval), std::fabs(sp.right_ticks_per_interval)));
@@ -60,7 +54,7 @@ void test_spin()
 
 void test_arc()
 {
-  // v>0, w!=0 -> wheels unequal, same sign (third validation case).
+  // v>0, w!=0 -> wheels unequal, same sign.
   auto sp = cmdVelToWheelSetpoints(0.1, 0.5, WHEEL_BASE_M, TICKS_PER_M, CONTROL_PERIOD_S, 1.0, 1.0, MAX_TICKS);
   CHECK("arc: unequal magnitudes", !near(sp.left_ticks_per_interval, sp.right_ticks_per_interval));
   CHECK("arc: both forward (same sign)", sp.left_ticks_per_interval > 0 && sp.right_ticks_per_interval > 0);
@@ -83,7 +77,7 @@ void test_saturation_preserves_curvature()
 
 void test_sign_convention()
 {
-  // Matches docs/calibration_log.md:
+  // Matches docs/hardware_calibration.md:
   auto sp = cmdVelToWheelSetpoints(0.1, 0.0, WHEEL_BASE_M, TICKS_PER_M, CONTROL_PERIOD_S, -1.0, -1.0, MAX_TICKS);
   CHECK("sign convention: forward cmd_vel -> negative raw setpoint",
         sp.left_ticks_per_interval < 0 && sp.right_ticks_per_interval < 0);
@@ -171,6 +165,55 @@ void test_straight_correction()
   CHECK("restart: captures new heading", near(sp.left_ticks_per_interval, 100) && near(control.travel_error_ticks, 0));
 }
 
+void test_friction_feedforward()
+{
+  CHECK("ff: zero setpoint gives zero", near(frictionFeedforward(0, 25, 0.2), 0));
+  CHECK("ff: static plus speed term", near(frictionFeedforward(50, 25, 0.2), 35));
+  CHECK("ff: odd-symmetric in reverse", near(frictionFeedforward(-50, 25, 0.2), -35));
+  CHECK("ff: tiny setpoint still gets the static term", near(frictionFeedforward(0.5, 25, 0.2), 25.1));
+  CHECK("ff: all-zero gains disable it", near(frictionFeedforward(80, 0, 0), 0));
+}
+
+void test_startup_kick()
+{
+  StartupKick kick;
+  auto step = [&](double setpoint, double measured, int kick_cycles = 2) {
+    return kick.update(setpoint, measured, kick_cycles, 3, 2.0, 3);
+  };
+
+  CHECK("kick: start from rest kicks", step(20, 0));
+  CHECK("kick: lasts kick_cycles", step(20, 0));
+  CHECK("kick: hands back to PID after kick_cycles", !step(20, 30));
+  CHECK("kick: no kick while moving", !step(20, 20) && !step(20, 18));
+
+  kick.reset();
+  step(20, 25);
+  CHECK("kick: none when already moving at start", !step(20, 25));
+
+  CHECK("kick: reversal at speed is left to the PID", !step(-20, 25));
+  CHECK("kick: no kick while still stopping", !step(-20, 1) && !step(-20, 0));
+  CHECK("kick: stalled for stall_cycles re-kicks", step(-20, 0));
+
+  kick.reset();
+  int kicks = 0;
+  for (int i = 0; i < 60; ++i)
+    kicks += step(20, 0) ? 1 : 0;
+  CHECK("kick: jammed wheel gives up after max_kicks", kicks == 3 * 2);
+  step(20, 10);
+  step(20, 0);
+  step(20, 0);
+  CHECK("kick: movement re-arms the stall kick", step(20, 0));
+
+  kick.reset();
+  step(20, 0, 4);
+  CHECK("kick: ends as soon as the wheel moves", !step(20, 40, 4) && !step(20, 0, 4));
+
+  kick.reset();
+  CHECK("kick: stop command never kicks", !step(0, 0));
+  CHECK("kick: kick_cycles 0 disables it", !step(20, 0, 0) && !step(20, 0, 0));
+  CHECK("kick: negative setpoint from rest kicks", step(-20, 0) && step(-20, 0) && !step(-20, -30));
+}
+
 int main()
 {
   test_straight();
@@ -183,6 +226,8 @@ int main()
   test_odometry_square_loop();
   test_yaw_to_quaternion();
   test_straight_correction();
+  test_friction_feedforward();
+  test_startup_kick();
 
   std::printf("\n%d/%d tests passed\n", tests_run - tests_failed, tests_run);
   return tests_failed == 0 ? 0 : 1;

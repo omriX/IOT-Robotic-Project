@@ -7,7 +7,7 @@
 //   s   Run the firmware's boot self-test (selftest.h) 20 times per motor, print pass rate.
 //   x   Stop both motors.
 //
-// Expected with the current wiring (robot_hardware.h, docs/calibration_log_1.md):
+// Expected with the current wiring (robot_hardware.h, docs/hardware_calibration.md):
 //   Motor A = right wheel, Motor B = left wheel.
 //   Raw +PWM spins each wheel BACKWARD and the encoder count goes UP.
 

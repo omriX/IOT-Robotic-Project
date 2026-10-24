@@ -1,4 +1,5 @@
 .pio/
-robot/robot_base/network_local.h
+.vscode/
 __pycache__/
-.vscode
+robot/robot_base/network_local.h
+robot/logs/

@@ -1,9 +1,5 @@
-// selftest.h
-//
-// Drives one motor forward then backward and checks the encoder actually
-// moved the right amount in the right direction.
-// Run before the PID control task starts, since this writes
-// the motor pins directly.
+// Boot self-test: drives one motor forward then backward and checks the encoder
+// followed. Writes the motor pins directly, so run it before the control task.
 #pragma once
 
 #include <Arduino.h>
@@ -11,7 +7,6 @@
 
 constexpr int SELFTEST_PWM = 60;
 constexpr unsigned long SELFTEST_PHASE_MS = 200;
-// Based on the ramp test measurement.
 constexpr long MIN_SELFTEST_TICKS = 40;
 
 struct SelftestResult

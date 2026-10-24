@@ -1,10 +1,5 @@
-// diff_drive.h
-//
-// Pure math, header-only, no hardware -- unit-testable on the PC
-// (test/test_diff_drive.cpp) before it ever runs on the robot.
-//
-// The PID keeps its own native unit: signed encoder ticks per control
-// interval. TICKS_PER_METER bridges SI units and ticks in both directions.
+// Drive math with no hardware dependencies, unit-tested on the PC (test/test_diff_drive.cpp).
+// Wheel speeds are signed encoder ticks per control interval, the PID's unit.
 #pragma once
 
 #include <cmath>
@@ -56,15 +51,13 @@ struct Quaternion2D
   double w;
 };
 
-// Planar yaw -> quaternion (REP-103): qx = qy = 0 always for a 2D robot.
+// Planar yaw -> quaternion (qx = qy = 0).
 inline Quaternion2D yawToQuaternion(double theta)
 {
   return {std::sin(theta / 2.0), std::cos(theta / 2.0)};
 }
 
-// Standard diff-drive forward kinematics: positive angular_w = CCW yaw
-// (REP-103) means the right wheel speeds up and the left wheel slows down
-// (or reverses) -- viewed from above, that spins the robot CCW.
+// Positive angular_w (CCW) speeds up the right wheel and slows the left.
 inline WheelVelocities wheelLinearVelocities(double linear_v, double angular_w, double wheel_base_m)
 {
   return {
@@ -72,9 +65,7 @@ inline WheelVelocities wheelLinearVelocities(double linear_v, double angular_w, 
       linear_v + angular_w * wheel_base_m / 2.0};
 }
 
-// cmd_vel (v, w) -> per-wheel raw PID setpoints (signed ticks/interval).
-// Converts cmd_vel into base wheel targets. Straight-drive correction can
-// subsequently adjust them within the same speed limit.
+// cmd_vel (v, w) -> raw per-wheel setpoints, both scaled down if either exceeds the limit.
 inline WheelSetpoints cmdVelToWheelSetpoints(
     double linear_v, double angular_w,
     double wheel_base_m, double ticks_per_meter, double control_period_s,
@@ -97,10 +88,8 @@ inline WheelSetpoints cmdVelToWheelSetpoints(
   return {left, right};
 }
 
-// Keeps the encoder heading at the start of a straight segment. All inputs
-// here are forward-positive ticks, independent of motor wiring. Positive
-// travel_error_ticks means the left wheel has travelled farther: slow it
-// slightly and speed up the right until the accumulated difference recovers.
+// Holds the heading of a straight segment by trimming the wheel targets
+// against the accumulated left/right encoder difference (forward-positive ticks).
 class StraightDriveCorrection
 {
 public:
@@ -149,9 +138,89 @@ private:
   }
 };
 
-// Encoder deltas (already in the PID's forward-positive sign convention) ->
-// odometry, integrated in place into `pose`. Returns the instantaneous
-// linear/angular velocity for the same interval
+// Friction feedforward PWM: a static term in the setpoint's direction plus a term proportional to speed.
+inline double frictionFeedforward(double setpoint_ticks, double static_pwm, double pwm_per_tick)
+{
+  if (setpoint_ticks == 0)
+    return 0;
+  const double direction = setpoint_ticks > 0 ? 1.0 : -1.0;
+  return direction * static_pwm + pwm_per_tick * setpoint_ticks;
+}
+
+// Short PWM burst for a wheel starting from standstill or stalled for stall_cycles.
+// Ends on encoder movement or after kick_cycles; gives up after max_kicks.
+class StartupKick
+{
+public:
+  bool kicking = false;
+
+  bool update(double setpoint_ticks, double measured_ticks, int kick_cycles,
+              int stall_cycles, double stall_ticks, int max_kicks)
+  {
+    const int direction = setpoint_ticks > 0 ? 1 : (setpoint_ticks < 0 ? -1 : 0);
+    if (direction == 0 || kick_cycles <= 0)
+    {
+      reset();
+      return false;
+    }
+
+    const bool still = std::fabs(measured_ticks) < stall_ticks;
+    if (direction != direction_)
+    {
+      // A reversal at speed is left to the PID; only a standing wheel is kicked.
+      reset();
+      direction_ = direction;
+      if (still)
+        start(kick_cycles);
+    }
+    else if (remaining_ > 0 && !still)
+    {
+      remaining_ = 0;
+      kicks_ = 0;
+    }
+    else if (remaining_ == 0)
+    {
+      if (!still)
+      {
+        stalled_ = 0;
+        kicks_ = 0;
+      }
+      else if (++stalled_ >= stall_cycles && kicks_ < max_kicks)
+      {
+        start(kick_cycles);
+      }
+    }
+
+    kicking = remaining_ > 0;
+    if (kicking)
+      remaining_--;
+    return kicking;
+  }
+
+  void reset()
+  {
+    direction_ = 0;
+    remaining_ = 0;
+    stalled_ = 0;
+    kicks_ = 0;
+    kicking = false;
+  }
+
+private:
+  int direction_ = 0;
+  int remaining_ = 0;
+  int stalled_ = 0;
+  int kicks_ = 0;
+
+  void start(int kick_cycles)
+  {
+    remaining_ = kick_cycles;
+    stalled_ = 0;
+    kicks_++;
+  }
+};
+
+// Integrates forward-positive encoder deltas into `pose`; returns the interval's velocities.
 inline OdometryDelta integrateOdometry(
     Pose2D &pose,
     double delta_ticks_left, double delta_ticks_right,

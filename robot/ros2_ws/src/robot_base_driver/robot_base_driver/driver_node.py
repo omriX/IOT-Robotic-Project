@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
-# driver_node.py
-#
-# Host-side driver for robot_base: relays /robot_base/log to /rosout,
-# broadcasts odom->base_link TF from /odom, publishes /diagnostics and the
-# traveled /path, and stops the robot if /odom goes stale.
+# Relays /robot_base/log to /rosout, broadcasts the odom->base_link TF, publishes
+# /diagnostics and the traveled /path, and stops the robot if /odom goes stale.
 
 import math
 import time
@@ -29,8 +26,7 @@ LOW_BATTERY_V = 6.6
 PATH_MIN_STEP_M = 0.01
 PATH_MIN_TURN_RAD = math.radians(3.0)
 PATH_MAX_POSES = 5000
-# A single odom step this long is impossible at the speed limit; it means the
-# ESP32 rebooted and odom restarted at the origin, so the trail starts over.
+# A longer single odom step means the ESP32 rebooted, so the trail starts over.
 PATH_JUMP_RESET_M = 0.3
 PATH_PUBLISH_PERIOD_S = 0.5
 
@@ -71,14 +67,11 @@ class RobotBaseDriver(Node):
         self.get_logger().info('robot_base_driver started')
 
     def on_log(self, msg):
-        # rcl_interfaces/Log levels (10/20/30/40/50) match
-        # rclpy.logging.LoggingSeverity's values directly.
         try:
             severity = LoggingSeverity(msg.level)
         except ValueError:
             severity = LoggingSeverity.INFO
-        # rclpy Humble binds each source call site to one severity. Calling
-        # logger.log() here with mixed ESP32 levels crashes on the next level.
+        # rclpy Humble binds each call site to one severity, so logger.log() with mixed levels crashes.
         message = f'[robot_base] {msg.msg}'
         logger = self.get_logger()
         if severity == LoggingSeverity.DEBUG:

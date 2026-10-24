@@ -1,24 +1,13 @@
-// robot_calibration.ino
+// Open-loop motor control and raw encoder readout for measuring the constants in
+// robot_base/robot_hardware.h (docs/hardware_calibration.md).
 //
-// Pure open-loop motor control + raw encoder access. It exists
-// to measure, before robot_base is written:
-//   - COUNTS_PER_WHEEL_REV  (zero, hand-rotate one turn, read)
-//   - WHEEL_RADIUS_M        (back-solve from a measured straight drive)
-//   - MOTOR_A_IS_LEFT / LEFT_DIR_SIGN / RIGHT_DIR_SIGN (watch pwm vs. rotation)
-//   - MAX_TICKS_PER_INTERVAL and the deadband floor (ramp test)
-//
-// Commands, newline-terminated, accepted over both Serial and WebSerial:
-//   zero                   Clear both encoder counts.
-//   read                   Print cumulative counts, last 50 ms tick delta, battery V.
-//   pwm <A|B|BOTH> <val>   Open-loop PWM (-255..255) to one or both motors.
-//                          Deliberately has NO deadband snap -- that floor is
-//                          exactly what this tool is used to measure.
-//   ramp <A|B>             Auto-ramp one motor 0 -> PWM_MAX -> 0, logging
-//                          pwm + ticks/50ms at each step.
-//   stop                   Zero PWM on both motors, cancel any ramp in progress.
-//   help                   List commands.
-//
-// Copy docs/calibration_log.template.md to a new docs/calibration_log_<n>.md and record results there.
+// Commands over Serial or WebSerial:
+//   zero                     Clear both encoder counts.
+//   read                     Counts, last 50 ms tick delta, battery V.
+//   pwm <A|B|BOTH> <val>     Open-loop PWM (-255..255), no deadband.
+//   ramp <A|B> [step] [max]  Ramp one motor 0 -> max -> 0 (default 10, 250); negative max reverses.
+//   stop                     Zero both motors, cancel a ramp.
+//   help                     List commands.
 
 #include <ESP32Encoder.h>
 #include "freertos/FreeRTOS.h"
@@ -28,15 +17,16 @@
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 
-const char *ssid = "...";
-const char *password = "...";
+// Only needed for WebSerial; the USB Serial commands work without Wi-Fi.
+const char *ssid = "YOUR_WIFI_NAME";
+const char *password = "YOUR_WIFI_PASSWORD";
 
 AsyncWebServer server(80);
 
 ESP32Encoder encoderA;
 ESP32Encoder encoderB;
 
-// Pins - match the POC code.
+// Same pins as robot_base/robot_hardware.h.
 const int MOTOR_A_DIRECTION_PIN = 27;
 const int MOTOR_A_PWM_PIN = 14;
 const int MOTOR_B_DIRECTION_PIN = 13;
@@ -54,15 +44,11 @@ const float LOW_BATTERY_THRESHOLD_V = 6.6; // 2S battery, 3.3 V/cell
 const float ADC_MAX_VALUE = 4095.0;
 const float ADC_LOGIC_LEVEL_V = 3.3;
 
-const int PWM_MAX = 250; // stay under the 255 hardware ceiling
+const int PWM_MAX = 250;
 const unsigned long CONTROL_PERIOD_MS = 50;
-const unsigned long RAMP_STEP_MS = 200; // how often the ramp advances
-const int RAMP_STEP_SIZE = 10;          // PWM increment per ramp step
+const unsigned long RAMP_STEP_MS = 200;
+const int RAMP_STEP_SIZE = 10;
 
-// Open-loop PWM currently applied to each motor. Plain volatile int/char/enum
-// reads and writes are single-word on the ESP32, which is adequate for this
-// non-safety-critical bench tool; robot_base's shared-state needs the real
-// spinlock discipline described in the plan, this sketch does not.
 volatile int pwmA = 0;
 volatile int pwmB = 0;
 
@@ -74,6 +60,9 @@ enum RampState
 };
 volatile RampState rampState = RAMP_IDLE;
 volatile char rampMotor = 'A';
+volatile int rampStep = RAMP_STEP_SIZE;
+volatile int rampMax = PWM_MAX;
+volatile int rampLevel = 0;
 unsigned long lastRampStepMs = 0;
 
 volatile long lastDeltaA = 0, lastDeltaB = 0; // ticks in the most recent 50 ms interval
@@ -84,7 +73,6 @@ void logBoth(const String &line)
   WebSerial.println(line);
 }
 
-// Raw open-loop drive
 void motors(int speedA, int speedB)
 {
   if (speedA >= 0)
@@ -171,25 +159,48 @@ void cmdPwm(String motor, int value)
   logBoth("OK pwm " + motor + " " + String(value));
 }
 
-void cmdRamp(String motor)
+void cmdRamp(String args)
 {
+  args.trim();
+  int sp1 = args.indexOf(' ');
+  String motor = sp1 == -1 ? args : args.substring(0, sp1);
   motor.toUpperCase();
   if (motor != "A" && motor != "B")
   {
     logBoth("ERR ramp: expected A or B");
     return;
   }
+  int step = RAMP_STEP_SIZE;
+  int max = PWM_MAX;
+  if (sp1 != -1)
+  {
+    String rest = args.substring(sp1 + 1);
+    rest.trim();
+    int sp2 = rest.indexOf(' ');
+    step = (sp2 == -1 ? rest : rest.substring(0, sp2)).toInt();
+    if (sp2 != -1)
+      max = rest.substring(sp2 + 1).toInt();
+  }
+  max = constrain(max, -PWM_MAX, PWM_MAX);
+  if (step <= 0 || max == 0)
+  {
+    logBoth("ERR ramp: usage 'ramp <A|B> [step>0] [max!=0]'");
+    return;
+  }
   rampMotor = motor.charAt(0);
+  rampStep = step;
+  rampMax = max;
+  rampLevel = 0;
   rampState = RAMP_UP;
   pwmA = 0;
   pwmB = 0;
   lastRampStepMs = millis();
-  logBoth("OK ramp " + motor + " started");
+  logBoth("OK ramp " + motor + " step " + String(step) + " max " + String(max) + " started");
 }
 
 void cmdHelp()
 {
-  logBoth("Commands: zero | read | pwm <A|B|BOTH> <val> | ramp <A|B> | stop | help");
+  logBoth("Commands: zero | read | pwm <A|B|BOTH> <val> | ramp <A|B> [step] [max] | stop | help");
 }
 
 void handleCommand(String cmd)
@@ -241,7 +252,7 @@ void handleCommand(String cmd)
   {
     if (sp1 == -1)
     {
-      logBoth("ERR ramp: usage 'ramp <A|B>'");
+      logBoth("ERR ramp: usage 'ramp <A|B> [step] [max]'");
       return;
     }
     cmdRamp(cmd.substring(sp1 + 1));
@@ -252,34 +263,36 @@ void handleCommand(String cmd)
   }
 }
 
-// Advances the ramp state machine by one step, if RAMP_STEP_MS has elapsed.
-// Called from controlTask, so it only ever touches pwmA/pwmB from that one task.
+// Advances the ramp by one step every RAMP_STEP_MS.
 void stepRamp()
 {
   if (millis() - lastRampStepMs < RAMP_STEP_MS)
     return;
   lastRampStepMs = millis();
 
-  int value = (rampMotor == 'A') ? pwmA : pwmB;
+  const int limit = abs(rampMax);
+  int level = rampLevel;
 
   if (rampState == RAMP_UP)
   {
-    value += RAMP_STEP_SIZE;
-    if (value >= PWM_MAX)
+    level += rampStep;
+    if (level >= limit)
     {
-      value = PWM_MAX;
+      level = limit;
       rampState = RAMP_DOWN;
     }
   }
   else
   { // RAMP_DOWN
-    value -= RAMP_STEP_SIZE;
-    if (value <= 0)
+    level -= rampStep;
+    if (level <= 0)
     {
-      value = 0;
+      level = 0;
       rampState = RAMP_IDLE;
     }
   }
+  rampLevel = level;
+  int value = rampMax < 0 ? -level : level;
 
   if (rampMotor == 'A')
     pwmA = value;
@@ -357,7 +370,6 @@ void setup()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/plain", "Calibration tool. Open http://" + WiFi.localIP().toString() + "/webserial"); });
 
-  // WebSerial terminal available at http://<IPAddress>/webserial
   WebSerial.begin(&server);
   WebSerial.onMessage([&](uint8_t *data, size_t len)
                       {
@@ -372,15 +384,7 @@ void setup()
   encoderB.attachFullQuad(MOT_B_ENCODER_A, MOT_B_ENCODER_B);
   encoderB.clearCount();
 
-  xTaskCreatePinnedToCore(
-      controlTask,  // Task function
-      "Calib_Task", // Name
-      4096,         // Stack size in words
-      NULL,         // Parameter
-      1,            // Priority
-      NULL,         // Task handle
-      1             // Run on core 1
-  );
+  xTaskCreatePinnedToCore(controlTask, "Calib_Task", 4096, NULL, 1, NULL, 1);
 
   cmdHelp();
   Serial.println("Calibration tool ready. Encoders zeroed.");

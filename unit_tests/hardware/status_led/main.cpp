@@ -11,15 +11,14 @@ constexpr unsigned long PATTERN_MS = 6000;
 struct Step
 {
   const char *name;
-  bool faulted, criticalBattery, selftestRunning, agentConnected;
+  bool faulted, criticalBattery, agentConnected;
 };
 
 constexpr Step STEPS[] = {
-    {"solid ON          -- all OK, agent connected", false, false, false, true},
-    {"slow blink        -- waiting for micro-ROS agent", false, false, false, false},
-    {"fast blink        -- self-test running", false, false, true, true},
-    {"double blink      -- battery below threshold", false, true, false, true},
-    {"triple blink      -- fault (self-test failed)", true, false, false, true},
+    {"solid ON          -- all OK, agent connected", false, false, true},
+    {"slow blink        -- waiting for micro-ROS agent", false, false, false},
+    {"double blink      -- battery below threshold", false, true, true},
+    {"triple blink      -- fault (self-test failed)", true, false, true},
 };
 constexpr int STEP_COUNT = sizeof(STEPS) / sizeof(STEPS[0]);
 
@@ -53,5 +52,5 @@ void loop()
     Serial.printf("[%d/%d] %s\n", step + 1, STEP_COUNT, STEPS[step].name);
   }
   const Step &s = STEPS[step];
-  statusLedUpdate(led, s.faulted, s.criticalBattery, s.selftestRunning, s.agentConnected);
+  statusLedUpdate(led, s.faulted, s.criticalBattery, s.agentConnected);
 }

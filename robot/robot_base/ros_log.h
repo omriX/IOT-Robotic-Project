@@ -1,5 +1,3 @@
-// ros_log.h
-//
 // Publishes rcl_interfaces/msg/Log on /robot_base/log.
 #pragma once
 
