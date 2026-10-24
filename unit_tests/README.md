@@ -5,7 +5,7 @@
 | [hardware/](hardware/) | One component at a time: motors, encoders, battery divider, status LED | Robot over USB |
 | [ros/](ros/) | `robot_base_driver`: diagnostics, stale-odom watchdog, TF, calibration math | Docker only |
 | [integration/](integration/) | The whole chain: robot → agent → ROS 2 topics and parameters | Robot connected to the agent |
-| [../robot/test/](../robot/test/) | Firmware drive math (`diff_drive.h`): kinematics, odometry, straight correction | A C++ compiler |
+| [../robot/test/](../robot/test/) | Firmware drive math (`diff_drive.h`): kinematics, odometry, straight correction, friction feedforward, startup kick | A C++ compiler |
 
 Commands below run from the repository root unless stated otherwise.
 

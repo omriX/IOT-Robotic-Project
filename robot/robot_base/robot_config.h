@@ -38,6 +38,26 @@ constexpr double PID_D = 0.0;
 constexpr double STRAIGHT_CORRECTION_GAIN_PER_S = 2.0;
 constexpr double STRAIGHT_MAX_TRIM_FRACTION = 0.20;
 constexpr int PID_OUTPUT_LIMIT = 230;
+// Friction feedforward added to the PID output: ff_static_pwm in the setpoint's
+// direction plus ff_pwm_per_tick per target tick/interval. Without it the
+// integral needs ~1s to climb to the PWM where the wheel starts turning (~40
+// wheels-up), and the wheel hums in place. Wheels-up: ~35 PWM holds 76 ticks,
+// ~80 holds 143. Both are live ROS parameters; set them to 0 to disable.
+// TODO: re-measure the static term on the floor (fine down-ramp stall PWM).
+// low_speed_assist (live ROS parameter) false turns off the feedforward, the
+// kick and the direction limit together, back to the plain PI controller.
+constexpr bool DEFAULT_LOW_SPEED_ASSIST = true;
+constexpr int DEFAULT_FF_STATIC_PWM = 25;
+constexpr double DEFAULT_FF_PWM_PER_TICK = 0.2;
+// Startup kick: a short PWM burst from standstill, ended as soon as the
+// encoder sees movement. 150 PWM for 100ms made the wheels lurch and slip,
+// which put the odom heading off on in-place turns. kick_pwm / kick_ms are
+// live ROS parameters; kick_ms 0 disables it.
+constexpr int DEFAULT_KICK_PWM = 65;
+constexpr int DEFAULT_KICK_MS = 0;
+constexpr double KICK_STALL_TICKS = 2.0;
+constexpr unsigned long KICK_STALL_MS = 150;
+constexpr int KICK_MAX_TRIES = 3;
 // Logs per-wheel setpoint / measured ticks / PWM every 100ms over WebSerial.
 #define DEBUG_PID_LOOP 1
 

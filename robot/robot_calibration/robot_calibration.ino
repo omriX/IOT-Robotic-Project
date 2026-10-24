@@ -13,8 +13,9 @@
 //   pwm <A|B|BOTH> <val>   Open-loop PWM (-255..255) to one or both motors.
 //                          Deliberately has NO deadband snap -- that floor is
 //                          exactly what this tool is used to measure.
-//   ramp <A|B>             Auto-ramp one motor 0 -> PWM_MAX -> 0, logging
-//                          pwm + ticks/50ms at each step.
+//   ramp <A|B> [step] [max] Auto-ramp one motor 0 -> max -> 0 (default 10, 250),
+//                          logging pwm + ticks/50ms at each step. A negative max
+//                          ramps in reverse; 'ramp A 2 -100' finds the floor PWM.
 //   stop                   Zero PWM on both motors, cancel any ramp in progress.
 //   help                   List commands.
 //
@@ -74,6 +75,9 @@ enum RampState
 };
 volatile RampState rampState = RAMP_IDLE;
 volatile char rampMotor = 'A';
+volatile int rampStep = RAMP_STEP_SIZE;
+volatile int rampMax = PWM_MAX;
+volatile int rampLevel = 0;
 unsigned long lastRampStepMs = 0;
 
 volatile long lastDeltaA = 0, lastDeltaB = 0; // ticks in the most recent 50 ms interval
@@ -171,25 +175,48 @@ void cmdPwm(String motor, int value)
   logBoth("OK pwm " + motor + " " + String(value));
 }
 
-void cmdRamp(String motor)
+void cmdRamp(String args)
 {
+  args.trim();
+  int sp1 = args.indexOf(' ');
+  String motor = sp1 == -1 ? args : args.substring(0, sp1);
   motor.toUpperCase();
   if (motor != "A" && motor != "B")
   {
     logBoth("ERR ramp: expected A or B");
     return;
   }
+  int step = RAMP_STEP_SIZE;
+  int max = PWM_MAX;
+  if (sp1 != -1)
+  {
+    String rest = args.substring(sp1 + 1);
+    rest.trim();
+    int sp2 = rest.indexOf(' ');
+    step = (sp2 == -1 ? rest : rest.substring(0, sp2)).toInt();
+    if (sp2 != -1)
+      max = rest.substring(sp2 + 1).toInt();
+  }
+  max = constrain(max, -PWM_MAX, PWM_MAX);
+  if (step <= 0 || max == 0)
+  {
+    logBoth("ERR ramp: usage 'ramp <A|B> [step>0] [max!=0]'");
+    return;
+  }
   rampMotor = motor.charAt(0);
+  rampStep = step;
+  rampMax = max;
+  rampLevel = 0;
   rampState = RAMP_UP;
   pwmA = 0;
   pwmB = 0;
   lastRampStepMs = millis();
-  logBoth("OK ramp " + motor + " started");
+  logBoth("OK ramp " + motor + " step " + String(step) + " max " + String(max) + " started");
 }
 
 void cmdHelp()
 {
-  logBoth("Commands: zero | read | pwm <A|B|BOTH> <val> | ramp <A|B> | stop | help");
+  logBoth("Commands: zero | read | pwm <A|B|BOTH> <val> | ramp <A|B> [step] [max] | stop | help");
 }
 
 void handleCommand(String cmd)
@@ -241,7 +268,7 @@ void handleCommand(String cmd)
   {
     if (sp1 == -1)
     {
-      logBoth("ERR ramp: usage 'ramp <A|B>'");
+      logBoth("ERR ramp: usage 'ramp <A|B> [step] [max]'");
       return;
     }
     cmdRamp(cmd.substring(sp1 + 1));
@@ -260,26 +287,29 @@ void stepRamp()
     return;
   lastRampStepMs = millis();
 
-  int value = (rampMotor == 'A') ? pwmA : pwmB;
+  const int limit = abs(rampMax);
+  int level = rampLevel;
 
   if (rampState == RAMP_UP)
   {
-    value += RAMP_STEP_SIZE;
-    if (value >= PWM_MAX)
+    level += rampStep;
+    if (level >= limit)
     {
-      value = PWM_MAX;
+      level = limit;
       rampState = RAMP_DOWN;
     }
   }
   else
   { // RAMP_DOWN
-    value -= RAMP_STEP_SIZE;
-    if (value <= 0)
+    level -= rampStep;
+    if (level <= 0)
     {
-      value = 0;
+      level = 0;
       rampState = RAMP_IDLE;
     }
   }
+  rampLevel = level;
+  int value = rampMax < 0 ? -level : level;
 
   if (rampMotor == 'A')
     pwmA = value;
