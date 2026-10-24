@@ -2,3 +2,4 @@
 robot/robot_base/network_local.h
 __pycache__/
 .vscode
+platformio.ini
