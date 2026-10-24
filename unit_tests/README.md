@@ -51,7 +51,7 @@ source without rebuilding the image.
 
 ## Integration smoke test
 
-Start the agent and wait for `state:AGENT_CONNECTED` (see the quick start), then
+Start the agent and wait for `state:AGENT_CONNECTED` (see [ubuntu_lab_setup.md](../robot/docs/ubuntu_lab_setup.md)), then
 from `robot/`:
 
 ```sh
@@ -61,6 +61,6 @@ docker compose -f docker/docker-compose.yml run --rm ros_tools \
 
 On Ubuntu add `-f docker/docker-compose.linux.yml` after the first `-f`.
 
-Checks `/odom` rate, battery voltage, boot self-test result, and that all seven
-parameters are readable. `--drive` asks first, then drives 14 cm forward and
+Checks `/odom` rate, battery voltage, boot self-test result, and that all twelve
+[ROS parameters](../robot/docs/ros_parameters.md) are readable. `--drive` asks first, then drives 14 cm forward and
 checks distance, heading drift, and that the robot stops. Exits 1 on any FAIL.

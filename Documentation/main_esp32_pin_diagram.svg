@@ -3,7 +3,7 @@
 <style>text{font-family:Arial,Helvetica,sans-serif;fill:#172b4d}.title{font-size:30px;font-weight:700}.sub{font-size:17px;fill:#52647a}.head{font-size:21px;font-weight:700}.label{font-size:18px}.pin{font-size:19px;font-weight:700;fill:white}.note{font-size:17px;fill:#52647a}.wire{fill:none;stroke:#2563eb;stroke-width:2.5;marker-end:url(#a)}</style>
 <rect width="1600" height="1080" fill="#f8fafc"/>
 <text x="55" y="55" class="title">Main ESP32 — carrier-board G / V / S connections</text>
-<text x="55" y="88" class="sub">Signal mapping from firmware • G / V / S header grouping observed in the supplied board photo</text>
+<text x="55" y="88" class="sub">Signal mapping from firmware • carrier-board G / V / S header groups</text>
 <rect x="425" y="155" width="750" height="735" rx="24" fill="#e8eef5" stroke="#cbd5e1" stroke-width="2"/>
 <text x="800" y="187" text-anchor="middle" class="head">ESP32 carrier / expansion board</text>
 <rect x="625" y="215" width="350" height="635" rx="20" fill="#172b4d"/>
@@ -64,6 +64,6 @@
 <path d="M978 755H1035V732H1192V755H1208" class="wire"/><text x="955" y="761" text-anchor="end" class="pin">GPIO 2</text><text x="1230" y="761" class="label">LED control</text>
 <text x="55" y="936" class="note">S = GPIO signal (blue wires). G = ground contact. V = supply contact; voltage and rail routing need verification.</text>
 <text x="55" y="967" class="note">Each GPIO group exposes separate G, V, and S contacts. These three contacts are NOT electrically shorted together.</text>
-<text x="55" y="998" class="note">Header groups are schematic, not physical header positions. G/V contact use and hidden board traces are not verified by this photo.</text>
+<text x="55" y="998" class="note">Header groups are schematic, not physical header positions.</text>
 <text x="55" y="1029" class="note">Motor signals go through the driver. Battery feed, encoder power wiring, and exact driver terminals require hardware verification.</text>
 </svg>

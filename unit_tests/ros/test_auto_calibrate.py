@@ -10,7 +10,7 @@ from robot_base_driver.auto_calibrate import (
 
 
 def test_radius_matches_recorded_calibration():
-    # 17 Oct 2026: odom said 1.0419 m, tape said 1.04 m (docs/calibration_log_1.md).
+    # 17 Oct 2026: odom said 1.0419 m, tape said 1.04 m (docs/hardware_calibration.md).
     # The log rounds the odom distance, hence the 2e-6 tolerance.
     assert corrected_wheel_radius(0.022, 1.0419, 1.04) == pytest.approx(0.021961, abs=2e-6)
 

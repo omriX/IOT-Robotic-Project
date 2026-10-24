@@ -1,9 +1,5 @@
-# bringup.launch.py
-#
-# robot_state_publisher + driver_node + optional rviz2. The micro-ROS agent
-# itself stays a separate docker-compose service (agent-udp/agent-serial),
-# not part of this launch file -- it needs to keep running independently of
-# whatever's being restarted on the driver/rviz side.
+# robot_state_publisher + driver_node + optional rviz2. The micro-ROS agent runs
+# separately as a docker-compose service.
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument

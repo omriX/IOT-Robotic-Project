@@ -1,5 +1,5 @@
 .pio/
-robot/robot_base/network_local.h
+.vscode/
 __pycache__/
-.vscode
-platformio.ini
+robot/robot_base/network_local.h
+robot/logs/

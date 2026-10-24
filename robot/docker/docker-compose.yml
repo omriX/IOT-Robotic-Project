@@ -1,7 +1,4 @@
-# micro-ROS agent (bridges the ESP32 <-> the ROS 2 graph).
-# Usage:
-#   docker compose up agent-serial   # Serial
-#   ROBOT_BIND_IP=<robot-facing IPv4> docker compose up agent-udp  # Wi-Fi
+# micro-ROS agent (agent-serial / agent-udp) and the ROS 2 tools container.
 
 services:
   agent-serial:

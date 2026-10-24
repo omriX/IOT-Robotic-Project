@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-# low_speed_test.py
-#
-# Low-speed starts from standstill: sends a cmd_vel step, records the /odom
-# twist, and reports how quickly and how smoothly the robot starts moving.
-# Used to compare friction feedforward / startup kick settings
-# (ff_static_pwm, ff_pwm_per_tick, kick_pwm, kick_ms) with live ros2 param set.
+# Sends low-speed cmd_vel steps from standstill and reports from /odom how quickly
+# and smoothly the robot starts. Used to compare low-speed assist parameters.
 
 import argparse
 import math

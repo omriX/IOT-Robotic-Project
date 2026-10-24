@@ -3,7 +3,7 @@
 // Turn the wheels by hand and watch the counts. Commands (letter, then Enter):
 //   z   Zero both counts.
 //
-// Expected (robot_hardware.h, docs/calibration_log_1.md):
+// Expected (robot_hardware.h, docs/hardware_calibration.md):
 //   One full wheel turn = about COUNTS_PER_WHEEL_REV ticks (4216).
 //   Encoder A = right wheel, encoder B = left wheel.
 //   Rolling the robot FORWARD by hand makes both counts go DOWN

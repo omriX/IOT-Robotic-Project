@@ -1,11 +1,13 @@
-# Calibration log
+# Hardware calibration
 
-## Session info
+Bench measurements of the constants in `robot_base/robot_hardware.h`, taken with the open-loop
+calibration sketch `robot_calibration/robot_calibration.ino` (flash it with the Arduino IDE; commands
+are typed over USB Serial or WebSerial, `help` lists them). The geometry was later refined live
+through ROS, see [live_calibration.md](live_calibration.md).
 
 - **Date:** 09.09.2026
-- **Location / surface** Home floor
+- **Surface:** home floor
 - **Operator:** Omri Hamani
-- **Notes:** Our first measurement!
 
 ## 1. COUNTS_PER_WHEEL_REV
 
@@ -52,9 +54,9 @@ motor shafts, since each wheel is centered on its own shaft.
 ## 3. WHEEL_RADIUS_M
 
 **What this is:** effective rolling radius of the wheel, under load, on the surface the robot will actually
-drive on (carpet compresses the tyre, so this is smaller than the free/unloaded radius).
+drive on (a soft surface compresses the tyre, so this can be smaller than the free/unloaded radius).
 
-**Method A — caliper, on the carpet, under the robot's own weight:**
+**Method A — caliper, on the floor, under the robot's own weight:**
 
 - Measured: **0.02 m** (20 mm)
 
@@ -83,7 +85,7 @@ It is stored in the ESP32's NVS and in `robot_hardware.h` as the default.
 
 **19 October 2026 follow-up:** A second `auto_calibrate` session refined the radius to 0.021933 m and,
 from a 90° in-place turn, the wheel base to 0.119528 m (up from the ruler-measured 0.116 m). Both were
-read back from the robot and written into `robot_hardware.h`. Details are in `live_calibration_log.md`.
+read back from the robot and written into `robot_hardware.h`. Details are in [live_calibration.md](live_calibration.md).
 
 ---
 

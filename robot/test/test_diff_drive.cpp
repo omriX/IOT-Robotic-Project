@@ -1,11 +1,5 @@
-// test/test_diff_drive.cpp
-//
-// PC-only unit tests for diff_drive.h
-// Run with:
+// PC unit tests for diff_drive.h. From robot/:
 //   g++ -std=c++17 -I robot_base test/test_diff_drive.cpp -o /tmp/t && /tmp/t
-//
-// Covers: straight/spin/arc kinematics, saturation scaling preserving curvature,
-// meters<->ticks round-trip, odometry closing a square loop, and angle wrapping.
 
 #include "diff_drive.h"
 #include "robot_hardware.h"
@@ -50,7 +44,7 @@ void test_straight()
 
 void test_spin()
 {
-  // v=0, w>0 (CCW) -> wheels opposite, equal magnitude (second validation case).
+  // v=0, w>0 (CCW) -> wheels opposite, equal magnitude.
   auto sp = cmdVelToWheelSetpoints(0.0, 1.0, WHEEL_BASE_M, TICKS_PER_M, CONTROL_PERIOD_S, 1.0, 1.0, MAX_TICKS);
   CHECK("spin: opposite signs", (sp.left_ticks_per_interval < 0) != (sp.right_ticks_per_interval < 0));
   CHECK("spin: equal magnitude", near(std::fabs(sp.left_ticks_per_interval), std::fabs(sp.right_ticks_per_interval)));
@@ -60,7 +54,7 @@ void test_spin()
 
 void test_arc()
 {
-  // v>0, w!=0 -> wheels unequal, same sign (third validation case).
+  // v>0, w!=0 -> wheels unequal, same sign.
   auto sp = cmdVelToWheelSetpoints(0.1, 0.5, WHEEL_BASE_M, TICKS_PER_M, CONTROL_PERIOD_S, 1.0, 1.0, MAX_TICKS);
   CHECK("arc: unequal magnitudes", !near(sp.left_ticks_per_interval, sp.right_ticks_per_interval));
   CHECK("arc: both forward (same sign)", sp.left_ticks_per_interval > 0 && sp.right_ticks_per_interval > 0);
@@ -83,7 +77,7 @@ void test_saturation_preserves_curvature()
 
 void test_sign_convention()
 {
-  // Matches docs/calibration_log.md:
+  // Matches docs/hardware_calibration.md:
   auto sp = cmdVelToWheelSetpoints(0.1, 0.0, WHEEL_BASE_M, TICKS_PER_M, CONTROL_PERIOD_S, -1.0, -1.0, MAX_TICKS);
   CHECK("sign convention: forward cmd_vel -> negative raw setpoint",
         sp.left_ticks_per_interval < 0 && sp.right_ticks_per_interval < 0);

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-# smoke_test.py -- end-to-end check of a running robot through the micro-ROS agent.
-#
-# Needs the agent running and the robot connected (state:AGENT_CONNECTED). Run
-# inside the ros_tools container:
+# End-to-end check of a connected robot through the micro-ROS agent. In the ros_tools container:
 #   python3 /repo/unit_tests/integration/smoke_test.py           # robot can stay still
 #   python3 /repo/unit_tests/integration/smoke_test.py --drive   # also drives ~14 cm forward
 #
@@ -17,13 +14,15 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.srv import GetParameters
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import UInt8
 
 TARGET_NODE = 'robot_base'
 PARAMS = ['log_level', 'cmd_vel_timeout_ms', 'odom_rate_hz', 'wheel_radius_m',
-          'wheel_base_m', 'max_linear_mps', 'max_angular_rps']
+          'wheel_base_m', 'max_linear_mps', 'max_angular_rps', 'low_speed_assist',
+          'ff_static_pwm', 'ff_pwm_per_tick', 'kick_pwm', 'kick_ms']
 LOW_BATTERY_V = 6.6
 MIN_ODOM_HZ = 15.0
 DRIVE_SPEED_MPS = 0.07
@@ -101,10 +100,20 @@ def check_params(node):
     if future.result() is None:
         report('FAIL', 'parameters', 'get_parameters timed out')
         return
-    values = []
+    values, missing = [], []
     for name, v in zip(PARAMS, future.result().values):
-        values.append(f'{name}={v.integer_value if v.type == 2 else round(v.double_value, 6)}')
-    report('PASS', 'parameters', ', '.join(values))
+        if v.type == ParameterType.PARAMETER_BOOL:
+            values.append(f'{name}={v.bool_value}')
+        elif v.type == ParameterType.PARAMETER_INTEGER:
+            values.append(f'{name}={v.integer_value}')
+        elif v.type == ParameterType.PARAMETER_DOUBLE:
+            values.append(f'{name}={round(v.double_value, 6)}')
+        else:
+            missing.append(name)
+    if missing:
+        report('FAIL', 'parameters', 'not set: ' + ', '.join(missing))
+    else:
+        report('PASS', 'parameters', ', '.join(values))
 
 
 def pose(msg):

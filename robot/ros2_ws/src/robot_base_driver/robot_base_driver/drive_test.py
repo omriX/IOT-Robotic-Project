@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-# drive_test.py
-#
-# Drives full test courses using /odom feedback: a closed square, a
-# forward/back + 90 deg + forward/back pattern, a half circle, a half
-# circle that drives straight back to the start, and a full circle.
-# Each segment stops when odom says it is done, so the calibrated
-# wheel_radius_m / wheel_base_m decide how far the robot really goes.
+# Drives test courses (square, out-and-back, half/full circle) with each segment ended by /odom.
 
 import argparse
 import math
@@ -95,8 +89,7 @@ class DriveTest(Node):
             raise SegmentError('segment timed out -- check the wheels and motors')
 
     def _run(self, error_fn, command_fn, tolerance, max_speed, min_speed, slowdown, expected_s):
-        # The robot keeps moving for a while after a stop is sent (Wi-Fi latency, wheel
-        # deceleration, odom period), so the main pass stops when the error is predicted
+        # The robot keeps moving after a stop is sent, so stop when the error is predicted
         # to reach zero lead_s from now.
         error = error_fn()
         sign = math.copysign(1.0, error)
@@ -114,9 +107,7 @@ class DriveTest(Node):
                 last_seq, last_t, last_err = self.odom_seq, now, error
         self.settle()
 
-        # Feedback from a standstill overshoots by the same latency, so corrections are
-        # timed pulses instead: with delay plus a smooth speed-up and slow-down, a pulse
-        # moves the robot about speed * duration.
+        # Corrections from a standstill are timed pulses, which move about speed * duration.
         for _ in range(MAX_CORRECTIONS):
             error = error_fn()
             if abs(error) <= tolerance:

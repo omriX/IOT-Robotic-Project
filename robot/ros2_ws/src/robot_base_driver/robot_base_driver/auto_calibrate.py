@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
-# auto_calibrate.py
-#
-# Automates the "command it, read odom" half of docs/live_calibration_log.md
-# Parts 1 and 2: drives a straight line or an in-place rotation, reads the
-# odom-reported distance/angle, and computes the corrected wheel_radius_m /
-# wheel_base_m. You still have to physically measure the actual distance or
-# angle with a tape measure -- there's no ground-truth sensor to automate
-# that part away.
-#
-# drive / turn / tune-drive / tune-turn trust odom instead: they stop a move
-# when /odom says it reached the target, and the tune modes repeat the move,
-# learning how far the robot coasts after the stop, until odom lands within
-# tolerance. They can't touch wheel_radius_m / wheel_base_m: the firmware uses
-# those both to set wheel speeds and to integrate odom, so odom never sees
-# their error.
+# straight / rotate: correct wheel_radius_m / wheel_base_m from odom vs. a tape-measured value.
+# drive / turn: odom-terminated moves; tune-drive / tune-turn learn the stop margin.
+# See docs/live_calibration.md.
 
 import argparse
 import math

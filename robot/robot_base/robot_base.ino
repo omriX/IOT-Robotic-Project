@@ -1,13 +1,5 @@
-// robot_base.ino
-//
-// subscribes to /cmd_vel, runs it through the same
-// diff_drive.h kinematics already verified on the PC (test/test_diff_drive.cpp),
-// and logs the resulting per-wheel m/s and ticks/interval over WebSerial.
-//
-// Verify with the agent reachable on the same LAN as the ESP32:
-//   docker compose -f docker/docker-compose.yml up agent-udp
-//   ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.1}, angular: {z: 0.0}}'
-// and watch WebSerial for equal left/right values.
+// micro-ROS node /robot_base: per-wheel PI speed control from /cmd_vel; publishes
+// /odom, /battery_state, /robot_base/status and /robot_base/log.
 
 #include <micro_ros_arduino.h>
 #include <rcl/rcl.h>
@@ -66,8 +58,7 @@ constexpr double CONTROL_PERIOD_S = CONTROL_PERIOD_MS / 1000.0;
 
 AsyncWebServer server(80);
 
-// Log Serial and WebSerial. In serial-transport mode only WebSerial: any
-// other byte on the USB UART would corrupt the micro-ROS stream.
+// In serial-transport mode only WebSerial: other bytes on the USB UART corrupt micro-ROS.
 void dprintln(const String &line)
 {
 #if !MICROROS_TRANSPORT_SERIAL
@@ -92,10 +83,10 @@ struct SharedState
   double target_right_ticks = 0;
   unsigned long last_cmd_ms = 0;
   bool faulted = false;
-  // written by controlTask, read by loop() for logging (and later /odom)
+  // written by controlTask, read by loop() for logging and /odom
   double x = 0, y = 0, theta = 0;
   double linear_v = 0, angular_w = 0;
-  // Live-tunable via rclc_parameter_server
+  // ROS parameters
   double wheel_radius_m = WHEEL_RADIUS_M;
   double wheel_base_m = WHEEL_BASE_M;
   double max_linear_mps = DEFAULT_MAX_LINEAR_MPS;
@@ -116,8 +107,7 @@ struct SharedState
 };
 SharedState shared;
 
-// WebSerial "freewheel on"/"freewheel off"
-// cuts motor output so the wheels can be turned by hand to test odometry.
+// WebSerial "freewheel on/off": motors off, encoders still counting.
 volatile bool freewheelMode = false;
 
 void motors(int speedA, int speedB)
@@ -150,9 +140,7 @@ void motors(int speedA, int speedB)
   }
 }
 
-// Never drive a wheel against its commanded direction: braking an overspeeding
-// wheel in reverse makes it bounce to a stop and stall again. Positive PWM gives
-// positive ticks, so the limits follow the setpoint's sign.
+// Never drive a wheel against its commanded direction: reverse braking makes it stall.
 void limitToSetpointDirection(ArduPID &controller, double setpoint)
 {
   if (setpoint > 0)
@@ -222,10 +210,7 @@ void controlTask(void *pvParameters)
     setpointA = MOTOR_A_IS_LEFT ? targetLeft : targetRight;
     setpointB = MOTOR_A_IS_LEFT ? targetRight : targetLeft;
 
-    // While stopped, hold the controllers in reset: otherwise the integral
-    // winds up while the wheels coast down and then holds the motors at a
-    // nonzero PWM at standstill. Resetting every cycle also keeps ArduPID's
-    // timer aligned with this loop for the first compute after resuming.
+    // Reset while stopped, so the integral can't wind up and hold PWM at standstill.
     int pwmA = 0, pwmB = 0;
     double ffA = 0, ffB = 0;
     if (isStopped)
@@ -704,7 +689,6 @@ void destroy_entities()
   portEXIT_CRITICAL(&sharedStateMux);
 }
 
-// Debug telemetry
 void log_state()
 {
   const char *names[] = {"WAITING_AGENT", "AGENT_AVAILABLE", "AGENT_CONNECTED", "AGENT_DISCONNECTED"};
@@ -737,7 +721,7 @@ void setup()
   prefs.begin("robot_base", false);
   loadParamsFromNvs();
 
-  // claim the pins and zero them before WiFi/anything else gets a chance to run.
+  // Zero the motor pins before anything else runs.
   pinMode(MOTOR_A_DIRECTION_PIN, OUTPUT);
   pinMode(MOTOR_A_PWM_PIN, OUTPUT);
   pinMode(MOTOR_B_DIRECTION_PIN, OUTPUT);
@@ -755,8 +739,7 @@ void setup()
 
   controllerA.begin(&inputA, &outputA, &setpointA, PID_P, PID_I, PID_D);
   controllerB.begin(&inputB, &outputB, &setpointB, PID_P, PID_I, PID_D);
-  // With the default sample time of 0, ArduPID's timer never advances, so its
-  // dt becomes "time since last reset" and the effective I/D gains drift.
+  // ArduPID's default sample time of 0 makes the effective I/D gains drift.
   controllerA.setSampleTime(CONTROL_PERIOD_MS);
   controllerB.setSampleTime(CONTROL_PERIOD_MS);
   controllerA.setOutputLimits(-PID_OUTPUT_LIMIT, PID_OUTPUT_LIMIT);
@@ -770,13 +753,13 @@ void setup()
 #if MICROROS_TRANSPORT_SERIAL
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  // Only WebSerial needs Wi-Fi here, so don't hold up boot for long.
+  // Only WebSerial needs Wi-Fi here.
   WiFi.waitForConnectResult(10000);
 #else
   Serial.println("connecting wifi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  WiFi.waitForConnectResult(); // best-effort; WebSerial just won't be reachable if this fails
+  WiFi.waitForConnectResult();
 #endif
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -797,7 +780,6 @@ void setup()
     } });
   server.begin();
 
-  // Runs before the PID task exists
   SelftestResult testA = runMotorSelftest(MOTOR_A_DIRECTION_PIN, MOTOR_A_PWM_PIN, encoderA);
   SelftestResult testB = runMotorSelftest(MOTOR_B_DIRECTION_PIN, MOTOR_B_PWM_PIN, encoderB);
   selftestPassed = testA.passed && testB.passed;
@@ -891,7 +873,7 @@ void loop()
   portENTER_CRITICAL(&sharedStateMux);
   bool faulted = shared.faulted;
   portEXIT_CRITICAL(&sharedStateMux);
-  statusLedUpdate(statusLed, faulted, lastBatteryVoltage < LOW_BATTERY_THRESHOLD_V, false, state == AGENT_CONNECTED);
+  statusLedUpdate(statusLed, faulted, lastBatteryVoltage < LOW_BATTERY_THRESHOLD_V, state == AGENT_CONNECTED);
 
   static unsigned long last_log_ms = 0;
   if (millis() - last_log_ms >= 1000)

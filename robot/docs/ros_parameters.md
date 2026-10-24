@@ -55,9 +55,38 @@ Some NVS keys differ from the parameter names because of the 15-character key li
   not recomputed.
 - `odom_rate_hz` and `log_level`: immediately.
 
+## Low-speed assist
+
+At low wheel targets the PI controller alone needed about 1 s to wind up to the PWM where a wheel
+starts turning, so the motors hummed in place and then lurched. The firmware therefore adds a
+friction feedforward to the PID output:
+
+```
+ff = sign(setpoint) * ff_static_pwm + ff_pwm_per_tick * setpoint
+```
+
+and limits the PID output to the setpoint's direction, so an overspeeding wheel is never braked in
+reverse. An optional startup kick (`kick_pwm` for up to `kick_ms`, ended as soon as the encoder sees
+movement) is available but off by default: a strong kick made the wheels slip, which spoiled the
+odom heading on in-place turns. `low_speed_assist false` turns all of this off and leaves the plain
+PI controller.
+
+Too much feedforward shows up as a steady overspeed. WebSerial's `pid` lines show, per wheel, the
+setpoint (`sp`), measured ticks (`in`), feedforward (`ff`), PWM (`out`) and `KICK` while a kick is
+active.
+
+To compare settings, change them with `ros2 param set` and run:
+
+```sh
+ros2 run robot_base_driver low_speed_test --alternate
+```
+
+It steps the robot from standstill at several low linear and angular speeds and reports, from
+`/odom`, the time to reach 50% of the target, the peak and mean speed relative to the target, and
+how often the robot stalled after it started.
+
 ## Related docs
 
-- [live_calibration_log.md](live_calibration_log.md): measuring `wheel_radius_m` and `wheel_base_m`
-  with `auto_calibrate`, and the values recorded so far.
-- [low_speed_tuning.md](low_speed_tuning.md): measuring and comparing the feedforward and kick values.
+- [live_calibration.md](live_calibration.md): measuring `wheel_radius_m` and `wheel_base_m`
+  with `auto_calibrate`, and the values recorded.
 - [ubuntu_lab_setup.md](ubuntu_lab_setup.md): why `cmd_vel_timeout_ms` is 1000 and not 500.

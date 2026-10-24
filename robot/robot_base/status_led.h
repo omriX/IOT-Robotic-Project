@@ -1,8 +1,4 @@
-// status_led.h
-//
-// LED states: fault > critical battery > self-test running >
-// no agent > solid (all OK).
-// Non-blocking, millis()-based.
+// Non-blocking status LED: fault > critical battery > no agent > solid (all OK).
 #pragma once
 
 #include <Arduino.h>
@@ -15,12 +11,10 @@ struct LedPattern
 
 constexpr unsigned long LED_TRIPLE_BLINK[] = {100, 100, 100, 100, 100, 500};
 constexpr unsigned long LED_DOUBLE_BLINK[] = {150, 150, 150, 450};
-constexpr unsigned long LED_FAST_BLINK[] = {100, 100};
 constexpr unsigned long LED_SLOW_BLINK[] = {500, 500};
 
 constexpr LedPattern PATTERN_FAULT = {LED_TRIPLE_BLINK, 6};
 constexpr LedPattern PATTERN_CRITICAL_BATTERY = {LED_DOUBLE_BLINK, 4};
-constexpr LedPattern PATTERN_SELFTEST = {LED_FAST_BLINK, 2};
 constexpr LedPattern PATTERN_NO_AGENT = {LED_SLOW_BLINK, 2};
 constexpr LedPattern PATTERN_SOLID = {nullptr, 0};
 
@@ -38,13 +32,11 @@ inline void statusLedBegin(StatusLedState &led, int pin)
   digitalWrite(pin, LOW);
 }
 
-inline void statusLedUpdate(StatusLedState &led, bool faulted, bool criticalBattery, bool selftestRunning, bool agentConnected)
+inline void statusLedUpdate(StatusLedState &led, bool faulted, bool criticalBattery, bool agentConnected)
 {
   LedPattern next = PATTERN_SOLID;
   if (!agentConnected)
     next = PATTERN_NO_AGENT;
-  if (selftestRunning)
-    next = PATTERN_SELFTEST;
   if (criticalBattery)
     next = PATTERN_CRITICAL_BATTERY;
   if (faulted)
