@@ -24,7 +24,7 @@ System capabilities:
 * unit_tests: hardware tests for each component, ROS driver tests, and an end-to-end smoke test.
 
 ## Documentation:
-* [Ubuntu lab setup](robot/docs/ubuntu_lab_setup.md): flash the robot, start the agent, first checks. Start here.
+* [Installation and setup](robot/docs/ubuntu_lab_setup.md): install the tools, flash the robot, start the agent, first checks. Start here.
 * [RViz live view (Ubuntu)](robot/docs/rviz_live_view.md) and [RViz live view (macOS)](robot/docs/rviz_live_view_macos.md)
 * [ROS parameters](robot/docs/ros_parameters.md): every live-tunable setting on the robot.
 * [Live calibration](robot/docs/live_calibration.md): wheel radius / wheel base calibration and the drive test courses.

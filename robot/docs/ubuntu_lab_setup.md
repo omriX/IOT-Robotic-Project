@@ -1,6 +1,7 @@
-# Ubuntu lab PC setup
+# Installation and setup (Ubuntu)
 
 Run the robot from an Ubuntu PC with Docker Engine (native Linux, not WSL2).
+For macOS and Windows, see [Other operating systems](#other-operating-systems).
 The robot talks to the micro-ROS agent either over **Wi-Fi** (default) or over
 the **USB cable** (serial). Serial needs Linux: Docker Desktop on macOS cannot
 pass USB devices into containers.
@@ -16,6 +17,47 @@ COMPOSE="docker compose -f docker/docker-compose.yml -f docker/docker-compose.li
 
 ## A. Once per PC
 
+### A0. Install the tools
+
+The commands below are for Ubuntu 22.04 or newer. You need Git, Docker Engine with the Compose plugin, and a tool to flash
+the ESP32 (PlatformIO, or the Arduino IDE in C2).
+
+**Git:**
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git
+```
+
+**Docker Engine and Compose**, from Docker's apt repository (the Ubuntu `docker.io` package may ship
+a Compose version older than the v2.24.4 this setup needs). Full instructions:
+[docs.docker.com/engine/install/ubuntu](https://docs.docker.com/engine/install/ubuntu/).
+
+```sh
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+**PlatformIO Core** (command-line `pio`), through pipx:
+
+```sh
+sudo apt-get install -y pipx
+pipx install platformio
+pipx ensurepath
+```
+
+Open a new terminal afterwards and check with `pio --version`. Instead of the command line, you can
+also install the **PlatformIO IDE** extension in Visual Studio Code. PlatformIO downloads the ESP32
+toolchain and the firmware libraries on the first build, so the first build needs internet and
+takes a few minutes.
+
+ROS 2 itself does not need to be installed: it runs inside the Docker images.
+
 ### A1. Docker without sudo
 
 ```sh
@@ -28,7 +70,12 @@ If Compose is older, update the `docker-compose-plugin` package from Docker's ap
 
 ### A2. Get the repository
 
-`git clone` it, or `git pull` if it is already there.
+```sh
+git clone https://github.com/omriX/IOT-Robotic-Project.git
+cd IOT-Robotic-Project
+```
+
+If it is already there, run `git pull` inside it instead.
 
 ### A3. Firewall (Wi-Fi only)
 
@@ -174,6 +221,22 @@ the Wi-Fi agent (`agent-udp`), so flash the Wi-Fi firmware option in C first.
 ```sh
 $COMPOSE down
 ```
+
+---
+
+## Other operating systems
+
+- **Flashing** works the same from Windows and macOS: install Git, Python 3, and PlatformIO
+  (`pip install platformio`, or the VS Code extension), then run the `pio` commands in C1. On Windows
+  the robot shows up as a `COM` port (CP210x driver); add `--upload-port COMx` if PlatformIO picks the
+  wrong one. Keep the repository in a path without non-English characters on Windows: the ESP32
+  compiler cannot open headers under such paths, which breaks the hardware-test builds.
+- **macOS**: install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/).
+  Wi-Fi mode works without the Linux override; set `ROBOT_BIND_IP` to the Mac's Wi-Fi address as shown
+  in [rviz_live_view_macos.md](rviz_live_view_macos.md). Serial mode is not available, since Docker
+  Desktop cannot pass USB devices into containers.
+- **Windows**: run the steps from D onward on an Ubuntu PC or in an Ubuntu virtual machine with a
+  bridged network adapter, so the robot can reach it. Docker Desktop on Windows is not covered here.
 
 ---
 
